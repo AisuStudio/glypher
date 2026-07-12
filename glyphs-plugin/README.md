@@ -1,7 +1,7 @@
-# Glypher → Glyphs import script
+# letter.space → Glyphs import script
 
-A Glyphs.app **Script** (not a plugin bundle) that reads a `glypher-document.json`
-— downloaded from the Export tab in the Glypher web app — and builds real glyphs
+A Glyphs.app **Script** (not a plugin bundle) that reads a `letterspace-document.json`
+— downloaded from the Export tab in the letter.space web app — and builds real glyphs
 from it in the currently open font.
 
 **⚠️ Untested.** I can't run Glyphs.app myself, so this has only been checked for
@@ -17,22 +17,22 @@ Glyphs 3, with the Python module installed: **Window → Plugin Manager → Modu
 
 1. In Glyphs: **Script → Open Scripts Folder** (or Cmd-Shift-Y). This opens
    `~/Library/Application Support/Glyphs 3/Scripts/`.
-2. Copy `Import from Glypher.py` into that folder.
+2. Copy `Import from letter.space.py` into that folder.
 3. Back in Glyphs, hold **Option** and open the Script menu — "Open Scripts
    Folder" becomes "Reload Scripts". Click it (or just restart Glyphs).
-4. "Import from Glypher" now shows up in the **Script** menu.
+4. "Import from letter.space" now shows up in the **Script** menu.
 
 ## Use
 
-1. In the Glypher web app: Export tab → Download JSON.
+1. In the letter.space web app: Export tab → Download JSON.
 2. In Glyphs: open (or create) the font you want to import into.
-3. **Script → Import from Glypher**, pick the downloaded `glypher-document.json`.
+3. **Script → Import from letter.space**, pick the downloaded `letterspace-document.json`.
 4. A summary dialog lists what got imported.
 
 ## What it does
 
 - One glyph per entry in the JSON. `kind: "base"` gets its Unicode set
-  automatically (from the character you typed in Glypher). `kind: "ligature"`
+  automatically (from the character you typed in letter.space). `kind: "ligature"`
   gets renamed to the underscore-joined form of its `components` (e.g.
   `f` + `i` → `f_i.liga`) so Glyphs' automatic ligature detection picks it up
   and puts it in the `liga` feature.
@@ -43,11 +43,14 @@ Glyphs 3, with the Python module installed: **Window → Plugin Manager → Modu
 
 ## What it doesn't do (yet)
 
-- **No coordinate calibration.** Glypher's canvas doesn't know your font's
+- **No coordinate calibration.** letter.space's canvas doesn't know your font's
   units-per-em or baseline — the script just flips Y (canvas grows down, font
   space grows up) and copies coordinates 1:1. Your first import will likely
   need a select-all + scale + reposition in Glyphs. Once you know a scale
-  factor that works, set `SCALE` at the top of the script.
+  factor that works, set `SCALE` at the top of the script. (Note: the web
+  app's own OTF/TTF exports already use a real baseline/ascender/bearing
+  calibration for glyphs drawn in Grid View — this script hasn't been
+  updated to match yet.)
 - **No feature code for alternates.** `kind: "alternate"` glyphs (`a.alt01`
   etc.) import fine as glyphs, but Glyphs only auto-wires `.ss01`–`.ss20`
   suffixes into features — `.alt` isn't one of them. Wire these into `calt`/

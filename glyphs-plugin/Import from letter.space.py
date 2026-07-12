@@ -1,17 +1,19 @@
-#MenuTitle: Import from Glypher
+#MenuTitle: Import from letter.space
 # -*- coding: utf-8 -*-
-"""Imports a glypher-document.json (exported from the Glypher web app) into
-the current font: creates/updates glyphs, sets Unicode for base characters,
-and builds each glyph's outline from the exported SVG contour paths."""
+"""Imports a letterspace-document.json (exported from the letter.space web
+app) into the current font: creates/updates glyphs, sets Unicode for base
+characters, and builds each glyph's outline from the exported SVG contour
+paths."""
 
 import json
 import re
 
 from GlyphsApp import Glyphs, GSGlyph, GSPath, GSNode, Message, GetOpenFile, LINE, OFFCURVE, QCURVE
 
-# Canvas pixels -> font units. Glypher's canvas has no notion of your font's
-# metrics, so this is a starting guess, not a calibrated mapping. Re-scale
-# and reposition the first import in Glyphs, then adjust SCALE to match.
+# Canvas pixels -> font units. letter.space's canvas has no notion of your
+# font's metrics, so this is a starting guess, not a calibrated mapping.
+# Re-scale and reposition the first import in Glyphs, then adjust SCALE to
+# match.
 SCALE = 1.0
 FLIP_Y = True  # canvas y grows downward, font design space grows upward
 
@@ -75,10 +77,10 @@ def build_layer(entry, font, master_id):
 def main():
     font = Glyphs.font
     if font is None:
-        Message("Open a font in Glyphs first.", title="Glypher Import")
+        Message("Open a font in Glyphs first.", title="letter.space Import")
         return
 
-    filepath = GetOpenFile(message="Choose glypher-document.json", filetypes=["json"])
+    filepath = GetOpenFile(message="Choose letterspace-document.json", filetypes=["json"])
     if not filepath:
         return
 
@@ -119,7 +121,7 @@ def main():
 
     Message(
         "Imported %d glyph(s): %s%s" % (len(imported), ", ".join(imported), note),
-        title="Glypher Import",
+        title="letter.space Import",
     )
 
 

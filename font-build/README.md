@@ -1,4 +1,4 @@
-# Glypher → TTF export
+# letter.space → TTF export
 
 **Most people don't need this.** The Export tab in the web app has an
 "Export OTF" button that builds a font entirely client-side (via
@@ -7,11 +7,11 @@ script step. This local Python script is the alternative path for people who
 specifically want a real TrueType (`glyf`-table) `.ttf` instead of the
 in-app CFF-flavored `.otf`, or who want to script/batch the build.
 
-A local Python script that compiles a `glypher-document.json` (Export tab →
-Download JSON in the Glypher web app) into a real `.ttf` font — no Glyphs.app,
-no hosted backend, just `fontTools` on your own machine.
+A local Python script that compiles a `letterspace-document.json` (Export tab
+→ Download JSON in the letter.space web app) into a real `.ttf` font — no
+Glyphs.app, no hosted backend, just `fontTools` on your own machine.
 
-**Why TTF, not OTF:** glypher's exported outlines are quadratic curves
+**Why TTF, not OTF:** letter.space's exported outlines are quadratic curves
 (`M`/`Q`/`Z`, see `src/lib/contour.ts`), which is exactly what TrueType's
 `glyf` table stores natively. OTF/CFF wants cubic curves, which would mean an
 extra conversion step for no real benefit — a hand-lettering font doesn't
@@ -28,7 +28,7 @@ pip3 install fonttools
 ## Use
 
 ```bash
-python3 build_ttf.py glypher-document.json output.ttf
+python3 build_ttf.py letterspace-document.json output.ttf
 ```
 
 - `kind: "base"` glyphs get mapped in the font's cmap from their exported
@@ -53,11 +53,13 @@ quadratic curves, and confirmed the font saves and reloads cleanly.
 
 Not yet handled:
 
-- **No coordinate calibration.** Same caveat as the Glyphs script — glypher's
-  canvas doesn't know about font units-per-em, so coordinates copy through
-  at `UPM=1000` with no scaling. Check the proportions in a font viewer
-  after building and adjust `UPM` at the top of the script if letters come
-  out oversized or tiny relative to a 1000-unit em.
+- **Coordinate calibration only covers Grid View.** Glyphs drawn in Grid View
+  carry the document's baseline/ascender/x-height/descender guides plus their
+  own draggable left/right bearings, and this script uses those for a real
+  canvas-pixel-to-font-unit calibration. Glyphs tagged via Write mode's
+  lasso-select have no such guide data and fall back to a per-glyph
+  bounding-box rescale — fine for a single glyph, but no cross-glyph height
+  consistency. Check the proportions in a font viewer after building.
 - **No `liga`/`calt` feature code.** Ligature and alternate glyphs land in
   the font but need manual OpenType feature work (in Glyphs, FontForge, or
   by hand-writing a `.fea` file and recompiling) to actually substitute.

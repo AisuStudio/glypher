@@ -1,6 +1,6 @@
 {
-  "name": "glypher",
-  "short_name": "glypher",
+  "name": "letter.space",
+  "short_name": "letter.space",
   "description": "Hand lettering, captured with pressure, turned into a font.",
   "start_url": "/",
   "display": "standalone",

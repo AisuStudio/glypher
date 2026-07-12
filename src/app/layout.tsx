@@ -3,7 +3,7 @@ import "./tokens.css";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "glypher",
+  title: "letter.space",
   description: "Hand lettering, captured with pressure, turned into a font.",
   manifest: "/manifest.json",
   icons: {
@@ -16,7 +16,7 @@ export const metadata: Metadata = {
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "glypher",
+    title: "letter.space",
   },
 };
 

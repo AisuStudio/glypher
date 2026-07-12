@@ -516,16 +516,16 @@ export default function Home() {
   function handleDownloadJson() {
     const blob = new Blob([exportJson], { type: "application/json" });
     saveFile(blob, {
-      suggestedName: "glypher-document.json",
+      suggestedName: "letterspace-document.json",
       mimeType: "application/json",
       extension: "json",
-      description: "Glypher document",
+      description: "letter.space document",
     });
   }
 
   function handleExportOtf() {
     if (!exportDoc) return;
-    downloadFont(exportDoc, "glypher.otf");
+    downloadFont(exportDoc, "letterspace.otf");
   }
 
   function handleExportSkeleton() {
@@ -537,7 +537,7 @@ export default function Home() {
       <BetaBadge />
       <header className={styles.header}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/GL_Logo.svg" alt="glypher" className={styles.logo} />
+        <img src="/LS_Logo.svg" alt="letter.space" className={styles.logo} />
         <p>
           {topMode === "grid" && "Draw directly into a letter's cell — no separate tagging step."}
           {topMode === "write" && viewMode === "draw" && "Write with a stylus, mouse, or finger. Strokes persist across reloads."}

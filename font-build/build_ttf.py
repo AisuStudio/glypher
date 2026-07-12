@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""Compiles a glypher-document.json (Export tab -> Download JSON in the
-Glypher web app) into a real .ttf font.
+"""Compiles a letterspace-document.json (Export tab -> Download JSON in the
+letter.space web app) into a real .ttf font.
 
-No UFO / ufo2ft involved: glypher's exported SVG paths are already quadratic
-(M/Q/Z, see src/lib/contour.ts), which is exactly what TrueType's glyf table
-stores natively. So this builds the glyf table directly from the parsed path
-data via fontTools' low-level FontBuilder + TTGlyphPen, instead of round-
-tripping through a UFO and a cubic-curve compiler.
+No UFO / ufo2ft involved: letter.space's exported SVG paths are already
+quadratic (M/Q/Z, see src/lib/contour.ts), which is exactly what TrueType's
+glyf table stores natively. So this builds the glyf table directly from the
+parsed path data via fontTools' low-level FontBuilder + TTGlyphPen, instead
+of round-tripping through a UFO and a cubic-curve compiler.
 
 Usage:
-    python3 build_ttf.py glypher-document.json output.ttf
+    python3 build_ttf.py letterspace-document.json output.ttf
 """
 
 import json
@@ -137,7 +137,7 @@ def glyph_name_for(entry):
     return entry["name"]
 
 
-def build_font(doc, family_name="Glypher Sketch"):
+def build_font(doc, family_name="Letterspace Sketch"):
     glyph_order = [".notdef"]
     cmap = {}
     glyphs = {}
@@ -192,7 +192,7 @@ def build_font(doc, family_name="Glypher Sketch"):
 
 def main():
     if len(sys.argv) < 3:
-        print("Usage: python3 build_ttf.py <glypher-document.json> <output.ttf>")
+        print("Usage: python3 build_ttf.py <letterspace-document.json> <output.ttf>")
         sys.exit(1)
 
     with open(sys.argv[1], "r", encoding="utf-8") as f:
