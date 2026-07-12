@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { getStroke } from "perfect-freehand";
 import styles from "./page.module.css";
 import { clearStrokes, loadStrokes, saveStrokes, type Stroke, type StrokePoint } from "@/lib/strokes";
-import { loadGlyphs, saveGlyphs, type Glyph } from "@/lib/glyphs";
+import { loadGlyphs, saveGlyphs, unicodeFor, type Glyph, type GlyphKind } from "@/lib/glyphs";
 import { anyPointInPolygon } from "@/lib/geometry";
 
 type ViewMode = "draw" | "review";
@@ -91,13 +91,19 @@ export default function Home() {
   const [settings, setSettings] = useState<StrokeSettings>(DEFAULT_SETTINGS);
   const settingsRef = useRef(settings);
 
-  const [glyphs, setGlyphs] = useState<Glyph[]>([]);
+  // Lazy initializer, not useEffect + setGlyphs([]) then load: starting from an empty
+  // array and loading afterward would let the save-on-change effect below fire once
+  // with [] and clobber whatever was already in storage before the real data arrives.
+  const [glyphs, setGlyphs] = useState<Glyph[]>(() => loadGlyphs());
   const taggedIdsRef = useRef<Set<string>>(new Set());
 
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const selectedIdsRef = useRef<Set<string>>(new Set());
 
   const [nameInput, setNameInput] = useState("");
+  const [kindInput, setKindInput] = useState<GlyphKind>("base");
+  const [componentsInput, setComponentsInput] = useState("");
+  const [alternateOfInput, setAlternateOfInput] = useState("");
 
   const [hud, setHud] = useState({ pointerType: "—", pressure: 0, x: 0, y: 0 });
   const [strokeCount, setStrokeCount] = useState(0);
@@ -140,11 +146,12 @@ export default function Home() {
       redraw();
     }
 
-    // Restore persisted strokes + glyph tags.
+    // Restore persisted strokes. Glyphs are already loaded via useState's lazy
+    // initializer, so just prime the ref the first redraw() below will read.
     completedRef.current = loadStrokes();
     outlinesRef.current = completedRef.current.map((s) => outlineFor(s.points, settingsRef.current));
     setStrokeCount(completedRef.current.length);
-    setGlyphs(loadGlyphs());
+    taggedIdsRef.current = new Set(glyphs.flatMap((g) => g.strokeIds));
 
     resize();
     window.addEventListener("resize", resize);
@@ -269,12 +276,20 @@ export default function Home() {
     const glyph: Glyph = {
       id: `${Date.now()}-${Math.round(Math.random() * 1e6)}`,
       name,
+      kind: kindInput,
       strokeIds: selectedIds,
       createdAt: Date.now(),
+      ...(kindInput === "base" ? { unicode: unicodeFor(name) } : {}),
+      ...(kindInput === "ligature"
+        ? { components: componentsInput.split(/[\s,]+/).map((c) => c.trim()).filter(Boolean) }
+        : {}),
+      ...(kindInput === "alternate" ? { alternateOf: alternateOfInput.trim() || undefined } : {}),
     };
     setGlyphs((gs) => [...gs, glyph]);
     setSelectedIds([]);
     setNameInput("");
+    setComponentsInput("");
+    setAlternateOfInput("");
   }
 
   function handleUntag(id: string) {
@@ -394,13 +409,68 @@ export default function Home() {
           </>
         ) : (
           <div className={styles.tagForm}>
+            <div className={styles.modeToggle} role="radiogroup" aria-label="Glyph kind">
+              <button
+                type="button"
+                role="radio"
+                aria-checked={kindInput === "base"}
+                className={`${styles.modeBtn} ${kindInput === "base" ? styles.modeBtnActive : ""}`}
+                onClick={() => setKindInput("base")}
+              >
+                Base
+              </button>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={kindInput === "ligature"}
+                className={`${styles.modeBtn} ${kindInput === "ligature" ? styles.modeBtnActive : ""}`}
+                onClick={() => setKindInput("ligature")}
+              >
+                Ligature
+              </button>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={kindInput === "alternate"}
+                className={`${styles.modeBtn} ${kindInput === "alternate" ? styles.modeBtnActive : ""}`}
+                onClick={() => setKindInput("alternate")}
+              >
+                Alternate
+              </button>
+            </div>
+
             <input
               type="text"
               className={styles.nameInput}
-              placeholder="glyph name (e.g. a, f_i.liga)"
+              placeholder={
+                kindInput === "base" ? "character (e.g. a, é)" : kindInput === "ligature" ? "name (e.g. f_i.liga)" : "name (e.g. a.alt01)"
+              }
               value={nameInput}
               onChange={(e) => setNameInput(e.target.value)}
             />
+
+            {kindInput === "base" && nameInput.trim() && (
+              <span className={styles.unicodeHint}>{unicodeFor(nameInput.trim()) ?? "not a single character"}</span>
+            )}
+            {kindInput === "ligature" && (
+              <input
+                type="text"
+                className={styles.nameInput}
+                placeholder="components (e.g. f, i)"
+                value={componentsInput}
+                onChange={(e) => setComponentsInput(e.target.value)}
+              />
+            )}
+            {kindInput === "alternate" && (
+              <input
+                type="text"
+                className={styles.nameInput}
+                placeholder="alternate of (e.g. a)"
+                value={alternateOfInput}
+                onChange={(e) => setAlternateOfInput(e.target.value)}
+              />
+            )}
+
             <button
               type="button"
               className={styles.clearBtn}
@@ -430,6 +500,11 @@ export default function Home() {
           {glyphs.map((g) => (
             <li key={g.id} className={styles.glyphItem}>
               <span className={styles.glyphName}>{g.name}</span>
+              <span className={styles.glyphMeta}>
+                {g.kind === "base" && (g.unicode ?? "no unicode")}
+                {g.kind === "ligature" && `ligature: ${g.components?.join(" + ") || "—"}`}
+                {g.kind === "alternate" && `alt of ${g.alternateOf || "—"}`}
+              </span>
               <span className={styles.glyphCount}>{g.strokeIds.length} strokes</span>
               <button type="button" className={styles.untagBtn} onClick={() => handleUntag(g.id)}>
                 untag
