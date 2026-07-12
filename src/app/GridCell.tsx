@@ -4,13 +4,17 @@ import { useEffect, useRef } from "react";
 import { getStroke } from "perfect-freehand";
 import styles from "./page.module.css";
 import { outlineToPath, type PathCommand } from "@/lib/contour";
+import { pointInPolygon } from "@/lib/geometry";
 import type { Stroke, StrokePoint } from "@/lib/strokes";
 import type { Metrics } from "@/lib/metrics";
 import { unicodeFor } from "@/lib/glyphs";
 
 export type StrokeOptions = { size: number; thinning: number; smoothing: number; streamline: number };
+export type CellMode = "draw" | "select";
+export type CellStroke = { id: string; outline: [number, number][] };
 
 const CELL_COLOR = "#1f1934";
+const SELECTED_COLOR = "#d8ff01"; // lemon — matches the Write-mode selection color
 const GUIDE_COLOR = "#9e9c95"; // hazelnut
 const BEARING_COLOR = "#5100ff"; // grape — matches the draggable-affordance color used elsewhere
 const BEARING_HIT_PX = 8;
@@ -26,11 +30,11 @@ function applyPath(ctx: CanvasRenderingContext2D, commands: PathCommand[]) {
   }
 }
 
-function fillOutline(ctx: CanvasRenderingContext2D, outline: [number, number][]) {
+function fillOutline(ctx: CanvasRenderingContext2D, outline: [number, number][], color: string = CELL_COLOR) {
   if (outline.length < 3) return;
   ctx.beginPath();
   applyPath(ctx, outlineToPath(outline));
-  ctx.fillStyle = CELL_COLOR;
+  ctx.fillStyle = color;
   ctx.fill();
 }
 
@@ -100,7 +104,10 @@ function drawGuides(
 
 type Props = {
   label: string;
-  outlines: [number, number][][];
+  strokes: CellStroke[];
+  mode: CellMode;
+  selectedIds: Set<string>;
+  onToggleSelect: (id: string) => void;
   strokeOptions: StrokeOptions;
   onStrokeComplete: (stroke: Stroke, cellWidth: number, cellHeight: number) => void;
   metrics: Metrics;
@@ -111,7 +118,10 @@ type Props = {
 
 export default function GridCell({
   label,
-  outlines,
+  strokes,
+  mode,
+  selectedIds,
+  onToggleSelect,
   strokeOptions,
   onStrokeComplete,
   metrics,
@@ -122,7 +132,10 @@ export default function GridCell({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const pointsRef = useRef<StrokePoint[]>([]);
   const drawingRef = useRef(false);
-  const outlinesRef = useRef(outlines);
+  const strokesRef = useRef(strokes);
+  const modeRef = useRef(mode);
+  const selectedIdsRef = useRef(selectedIds);
+  const onToggleSelectRef = useRef(onToggleSelect);
   const strokeOptionsRef = useRef(strokeOptions);
   const onStrokeCompleteRef = useRef(onStrokeComplete);
   const metricsRef = useRef(metrics);
@@ -130,7 +143,10 @@ export default function GridCell({
   const onBearingsChangeRef = useRef(onBearingsChange);
   const draggingRef = useRef<"left" | "right" | null>(null);
 
-  outlinesRef.current = outlines;
+  strokesRef.current = strokes;
+  modeRef.current = mode;
+  selectedIdsRef.current = selectedIds;
+  onToggleSelectRef.current = onToggleSelect;
   strokeOptionsRef.current = strokeOptions;
   onStrokeCompleteRef.current = onStrokeComplete;
   metricsRef.current = metrics;
@@ -154,7 +170,9 @@ export default function GridCell({
         bearingsRef.current.leftBearing,
         bearingsRef.current.rightBearing
       );
-      for (const outline of outlinesRef.current) fillOutline(ctx, outline);
+      for (const s of strokesRef.current) {
+        fillOutline(ctx, s.outline, selectedIdsRef.current.has(s.id) ? SELECTED_COLOR : CELL_COLOR);
+      }
       if (pointsRef.current.length > 0) {
         fillOutline(ctx, getStroke(pointsRef.current, strokeOptionsRef.current) as [number, number][]);
       }
@@ -194,10 +212,21 @@ export default function GridCell({
 
     function onPointerDown(e: PointerEvent) {
       canvas!.setPointerCapture(e.pointerId);
-      const [x] = pointFromEvent(e);
+      const [x, y] = pointFromEvent(e);
       const hit = bearingNear(x, canvas!.clientWidth);
       if (hit) {
         draggingRef.current = hit;
+        return;
+      }
+      if (modeRef.current === "select") {
+        // Topmost (last-drawn) stroke wins when strokes overlap.
+        for (let i = strokesRef.current.length - 1; i >= 0; i--) {
+          const s = strokesRef.current[i];
+          if (pointInPolygon([x, y], s.outline)) {
+            onToggleSelectRef.current(s.id);
+            break;
+          }
+        }
         return;
       }
       drawingRef.current = true;
@@ -223,9 +252,16 @@ export default function GridCell({
         return;
       }
       // Idle hover: show a resize cursor near a bearing line so it reads as
-      // draggable before the user commits to a pointerdown.
-      const [x] = pointFromEvent(e);
-      canvas!.style.cursor = bearingNear(x, canvas!.clientWidth) ? "ew-resize" : "";
+      // draggable before the user commits to a pointerdown; in select mode,
+      // show a pointer cursor over a selectable stroke.
+      const [x, y] = pointFromEvent(e);
+      if (bearingNear(x, canvas!.clientWidth)) {
+        canvas!.style.cursor = "ew-resize";
+      } else if (modeRef.current === "select" && strokesRef.current.some((s) => pointInPolygon([x, y], s.outline))) {
+        canvas!.style.cursor = "pointer";
+      } else {
+        canvas!.style.cursor = "";
+      }
     }
 
     function onPointerUp(e: PointerEvent) {
@@ -276,8 +312,8 @@ export default function GridCell({
     if (!canvas || !ctx) return;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     drawGuides(ctx, canvas.clientWidth, canvas.clientHeight, metrics, leftBearing, rightBearing);
-    for (const outline of outlines) fillOutline(ctx, outline);
-  }, [outlines, metrics, leftBearing, rightBearing]);
+    for (const s of strokes) fillOutline(ctx, s.outline, selectedIds.has(s.id) ? SELECTED_COLOR : CELL_COLOR);
+  }, [strokes, selectedIds, metrics, leftBearing, rightBearing]);
 
   const unicode = unicodeFor(label);
 
