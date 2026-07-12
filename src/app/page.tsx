@@ -539,15 +539,7 @@ export default function Home() {
       <header className={styles.header}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/LS_Logo.svg" alt="letter.space" className={styles.logo} />
-        <p>
-          {topMode === "grid" && viewMode !== "export" && "Draw directly into a letter's cell — no separate tagging step."}
-          {topMode === "write" && viewMode === "draw" && "Write with a stylus, mouse, or finger. Strokes persist across reloads."}
-          {topMode === "write" && viewMode === "review" && "Drag to lasso strokes, then give the selection a glyph name."}
-          {viewMode === "export" && "The compiled document — every tagged glyph resolved to real contours."}
-        </p>
-      </header>
 
-      <div className={styles.toolbar}>
         <div className={styles.modeToggle} role="radiogroup" aria-label="Top mode">
           <button
             type="button"
@@ -569,6 +561,45 @@ export default function Home() {
           </button>
         </div>
 
+        <div className={styles.modeToggle} role="radiogroup" aria-label="View mode">
+          <button
+            type="button"
+            role="radio"
+            aria-checked={viewMode === "draw"}
+            className={`${styles.modeBtn} ${viewMode === "draw" ? styles.modeBtnActive : ""}`}
+            onClick={() => setViewMode("draw")}
+          >
+            Draw
+          </button>
+          <button
+            type="button"
+            role="radio"
+            aria-checked={viewMode === "review"}
+            className={`${styles.modeBtn} ${viewMode === "review" ? styles.modeBtnActive : ""}`}
+            onClick={() => setViewMode("review")}
+          >
+            Review
+          </button>
+          <button
+            type="button"
+            role="radio"
+            aria-checked={viewMode === "export"}
+            className={`${styles.modeBtn} ${viewMode === "export" ? styles.modeBtnActive : ""}`}
+            onClick={() => setViewMode("export")}
+          >
+            Export
+          </button>
+        </div>
+
+        <p>
+          {topMode === "grid" && viewMode !== "export" && "Draw directly into a letter's cell — no separate tagging step."}
+          {topMode === "write" && viewMode === "draw" && "Write with a stylus, mouse, or finger. Strokes persist across reloads."}
+          {topMode === "write" && viewMode === "review" && "Drag to lasso strokes, then give the selection a glyph name."}
+          {viewMode === "export" && "The compiled document — every tagged glyph resolved to real contours."}
+        </p>
+      </header>
+
+      <div className={styles.toolbar}>
         {topMode === "grid" && viewMode !== "export" && (
           <div className={styles.charsetToggle}>
             {CHARACTER_SETS.map((set) => (
@@ -658,36 +689,6 @@ export default function Home() {
             </label>
           </div>
         )}
-
-        <div className={styles.modeToggle} role="radiogroup" aria-label="View mode">
-          <button
-            type="button"
-            role="radio"
-            aria-checked={viewMode === "draw"}
-            className={`${styles.modeBtn} ${viewMode === "draw" ? styles.modeBtnActive : ""}`}
-            onClick={() => setViewMode("draw")}
-          >
-            Draw
-          </button>
-          <button
-            type="button"
-            role="radio"
-            aria-checked={viewMode === "review"}
-            className={`${styles.modeBtn} ${viewMode === "review" ? styles.modeBtnActive : ""}`}
-            onClick={() => setViewMode("review")}
-          >
-            Review
-          </button>
-          <button
-            type="button"
-            role="radio"
-            aria-checked={viewMode === "export"}
-            className={`${styles.modeBtn} ${viewMode === "export" ? styles.modeBtnActive : ""}`}
-            onClick={() => setViewMode("export")}
-          >
-            Export
-          </button>
-        </div>
 
         {showStrokeControls && (
           <>
