@@ -64,6 +64,7 @@ function drawGuides(
 
   ctx.strokeStyle = BEARING_COLOR;
   ctx.globalAlpha = 0.6;
+  ctx.setLineDash([1, 3]);
   ctx.beginPath();
   const lx = Math.round(leftBearing * width) + 0.5;
   const rx = Math.round(rightBearing * width) + 0.5;
@@ -72,6 +73,23 @@ function drawGuides(
   ctx.moveTo(rx, 0);
   ctx.lineTo(rx, height);
   ctx.stroke();
+
+  // Grip handles at the vertical center — the visual cue that these lines
+  // are draggable, not just static guides.
+  ctx.setLineDash([]);
+  ctx.globalAlpha = 1;
+  const handleY = height / 2;
+  for (const hx of [lx, rx]) {
+    ctx.beginPath();
+    ctx.arc(hx, handleY, 4, 0, Math.PI * 2);
+    ctx.fillStyle = BEARING_COLOR;
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(hx, handleY, 4, 0, Math.PI * 2);
+    ctx.strokeStyle = "#eae8e0"; // vanilla — ring for contrast against the stroke color
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
 
   ctx.restore();
 }
@@ -188,9 +206,15 @@ export default function GridCell({
         redraw();
         return;
       }
-      if (!drawingRef.current) return;
-      pointsRef.current.push(pointFromEvent(e));
-      redraw();
+      if (drawingRef.current) {
+        pointsRef.current.push(pointFromEvent(e));
+        redraw();
+        return;
+      }
+      // Idle hover: show a resize cursor near a bearing line so it reads as
+      // draggable before the user commits to a pointerdown.
+      const [x] = pointFromEvent(e);
+      canvas!.style.cursor = bearingNear(x, canvas!.clientWidth) ? "ew-resize" : "";
     }
 
     function onPointerUp(e: PointerEvent) {

@@ -158,6 +158,15 @@ export default function Home() {
   const [activeSetIds, setActiveSetIds] = useState<Set<string>>(new Set(DEFAULT_CHARACTER_SET_IDS));
   const gridChars = CHARACTER_SETS.filter((s) => activeSetIds.has(s.id)).flatMap((s) => s.chars);
   const [metrics, setMetrics] = useState<Metrics>(() => loadMetrics());
+  const [cellSize, setCellSize] = useState(() => {
+    if (typeof window === "undefined") return 90;
+    return Number(window.localStorage.getItem("glypher.cellSize.v1")) || 90;
+  });
+
+  function updateCellSize(size: number) {
+    setCellSize(size);
+    window.localStorage.setItem("glypher.cellSize.v1", String(size));
+  }
 
   function toggleCharacterSet(id: string) {
     setActiveSetIds((prev) => {
@@ -577,6 +586,18 @@ export default function Home() {
         {topMode === "grid" && (
           <div className={styles.sliders}>
             <label className={styles.sliderRow}>
+              <span>Cell size</span>
+              <input
+                type="range"
+                min={60}
+                max={240}
+                step={10}
+                value={cellSize}
+                onChange={(e) => updateCellSize(Number(e.target.value))}
+              />
+              <span className={styles.val}>{cellSize}</span>
+            </label>
+            <label className={styles.sliderRow}>
               <span>Ascender</span>
               <input
                 type="range"
@@ -916,7 +937,10 @@ export default function Home() {
       </div>
 
       {topMode === "grid" && (
-        <div className={styles.grid}>
+        <div
+          className={styles.grid}
+          style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${cellSize}px, 1fr))` }}
+        >
           {gridChars.map((letter) => {
             const glyph = glyphs.find((g) => g.kind === "base" && g.name === letter);
             const cellOutlines = glyph
