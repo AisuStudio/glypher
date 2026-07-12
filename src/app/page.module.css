@@ -354,7 +354,7 @@
 
 .gridCell {
   position: relative;
-  aspect-ratio: 1;
+  aspect-ratio: 9 / 16;
   background: var(--color-vanilla);
   touch-action: none;
 }

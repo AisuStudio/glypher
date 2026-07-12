@@ -1,3 +1,5 @@
+import polygonClipping, { type Polygon, type MultiPolygon } from "polygon-clipping";
+
 export type PathCommand =
   | { type: "M"; x: number; y: number }
   | { type: "Q"; cx: number; cy: number; x: number; y: number }
@@ -16,6 +18,37 @@ export function outlineToPath(outline: [number, number][]): PathCommand[] {
   }
   commands.push({ type: "Z" });
   return commands;
+}
+
+// Shoelace formula. Used to drop degenerate slivers polygon-clipping can
+// produce at exact intersection points (floating-point noding artifacts —
+// near-zero-area rings, not real geometry).
+function ringArea(ring: [number, number][]): number {
+  let sum = 0;
+  for (let i = 0; i < ring.length; i++) {
+    const [x0, y0] = ring[i];
+    const [x1, y1] = ring[(i + 1) % ring.length];
+    sum += x0 * y1 - x1 * y0;
+  }
+  return Math.abs(sum) / 2;
+}
+
+const MIN_RING_AREA = 0.5; // sq. canvas px — real strokes are always far larger than this
+
+// Strokes making up one glyph are drawn independently and can overlap (e.g.
+// the crossbar and stem of a "t"). Feeding each stroke's outline into the
+// font as its own separate contour renders fine on canvas (nonzero fill
+// handles overlaps invisibly), but overlapping/self-intersecting contours can
+// glitch in stricter font rasterizers — this merges them into clean,
+// non-overlapping polygons first. Output rings may include holes (e.g. a
+// ring-shaped union); each ring is still just a contour to run through
+// outlineToPath — the winding direction polygon-clipping assigns each ring
+// is what makes nonzero-fill render holes correctly.
+export function unionOutlines(outlines: [number, number][][]): [number, number][][] {
+  const polygons: Polygon[] = outlines.filter((o) => o.length >= 3).map((o) => [o]);
+  if (polygons.length === 0) return [];
+  const merged: MultiPolygon = polygonClipping.union(polygons[0], ...polygons.slice(1));
+  return merged.flat().filter((ring) => ringArea(ring) > MIN_RING_AREA);
 }
 
 function round(n: number): number {

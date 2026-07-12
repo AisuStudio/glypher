@@ -6,8 +6,9 @@ import styles from "./page.module.css";
 import { clearStrokes, loadStrokes, saveStrokes, type Stroke, type StrokePoint } from "@/lib/strokes";
 import { loadGlyphs, saveGlyphs, unicodeFor, type Glyph, type GlyphKind } from "@/lib/glyphs";
 import { anyPointInPolygon } from "@/lib/geometry";
-import { outlineToPath, pathToSvgD, type PathCommand } from "@/lib/contour";
+import { outlineToPath, pathToSvgD, unionOutlines, type PathCommand } from "@/lib/contour";
 import { downloadFont } from "@/lib/exportFont";
+import { saveFile } from "@/lib/saveFile";
 import { loadMetrics, saveMetrics, type Metrics } from "@/lib/metrics";
 import { Undo2, Redo2 } from "lucide-react";
 import GridCell, { DEFAULT_LEFT_BEARING, DEFAULT_RIGHT_BEARING } from "./GridCell";
@@ -89,10 +90,16 @@ function compileDocument(glyphs: Glyph[], strokes: Stroke[], settings: StrokeSet
       rightBearing: g.rightBearing,
       cellWidth: g.cellWidth,
       cellHeight: g.cellHeight,
-      contours: g.strokeIds
-        .map((id) => byId.get(id))
-        .filter((s): s is Stroke => Boolean(s))
-        .map((s) => pathToSvgD(outlineToPath(outlineFor(s.points, settings)))),
+      // Strokes are drawn independently and can overlap (e.g. the crossbar
+      // and stem of a "t") — union their outlines into clean, non-
+      // overlapping contours before exporting, so overlapping/self-
+      // intersecting paths don't glitch in font rasterizers downstream.
+      contours: unionOutlines(
+        g.strokeIds
+          .map((id) => byId.get(id))
+          .filter((s): s is Stroke => Boolean(s))
+          .map((s) => outlineFor(s.points, settings))
+      ).map((ring) => pathToSvgD(outlineToPath(ring))),
     })),
   };
 }
@@ -498,14 +505,12 @@ export default function Home() {
 
   function handleDownloadJson() {
     const blob = new Blob([exportJson], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "glypher-document.json";
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    saveFile(blob, {
+      suggestedName: "glypher-document.json",
+      mimeType: "application/json",
+      extension: "json",
+      description: "Glypher document",
+    });
   }
 
   function handleExportOtf() {

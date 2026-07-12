@@ -1,4 +1,5 @@
 import { Font, Glyph, Path } from "opentype.js";
+import { saveFile } from "./saveFile";
 
 // Mirrors font-build/build_ttf.py's glyph naming/metrics/cmap conventions, but
 // the actual binary output differs: opentype.js always writes a CFF-flavored
@@ -212,12 +213,10 @@ export function buildFont(doc: CompiledDocument, familyName = "Glypher Sketch"):
 export function downloadFont(doc: CompiledDocument, fileName = "glypher.otf") {
   const font = buildFont(doc);
   const blob = new Blob([font.toArrayBuffer()], { type: "font/otf" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = fileName;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  saveFile(blob, {
+    suggestedName: fileName,
+    mimeType: "font/otf",
+    extension: "otf",
+    description: "OpenType font",
+  });
 }
