@@ -5,15 +5,35 @@ import { getStroke } from "perfect-freehand";
 import styles from "./page.module.css";
 import { clearStrokes, loadStrokes, saveStrokes, type Stroke, type StrokePoint } from "@/lib/strokes";
 
-const STROKE_OPTIONS = {
+type Mode = "mono" | "dynamic";
+
+type StrokeSettings = {
+  mode: Mode;
+  size: number;
+  thinning: number;
+  smoothing: number;
+  streamline: number;
+};
+
+const DEFAULT_SETTINGS: StrokeSettings = {
+  mode: "dynamic",
   size: 20,
   thinning: 0.7,
   smoothing: 0.5,
   streamline: 0.5,
 };
 
-function outlineFor(points: StrokePoint[]): [number, number][] {
-  return getStroke(points, STROKE_OPTIONS) as [number, number][];
+function optionsFor(settings: StrokeSettings) {
+  return {
+    size: settings.size,
+    thinning: settings.mode === "mono" ? 0 : settings.thinning,
+    smoothing: settings.smoothing,
+    streamline: settings.streamline,
+  };
+}
+
+function outlineFor(points: StrokePoint[], settings: StrokeSettings): [number, number][] {
+  return getStroke(points, optionsFor(settings)) as [number, number][];
 }
 
 function fillOutline(ctx: CanvasRenderingContext2D, outline: [number, number][]) {
@@ -36,10 +56,15 @@ export default function Home() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const drawingRef = useRef(false);
 
-  // Completed strokes + their cached outlines (recomputed only when a stroke is added, not on every move).
+  // Completed strokes + their cached outlines (recomputed only when a stroke is added
+  // or settings change — not on every pointer move).
   const completedRef = useRef<Stroke[]>([]);
   const outlinesRef = useRef<[number, number][][]>([]);
   const currentPointsRef = useRef<StrokePoint[]>([]);
+  const redrawRef = useRef<() => void>(() => {});
+
+  const [settings, setSettings] = useState<StrokeSettings>(DEFAULT_SETTINGS);
+  const settingsRef = useRef(settings);
 
   const [hud, setHud] = useState({ pointerType: "—", pressure: 0, x: 0, y: 0 });
   const [strokeCount, setStrokeCount] = useState(0);
@@ -55,9 +80,10 @@ export default function Home() {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       for (const outline of outlinesRef.current) fillOutline(ctx, outline);
       if (currentPointsRef.current.length > 0) {
-        fillOutline(ctx, outlineFor(currentPointsRef.current));
+        fillOutline(ctx, outlineFor(currentPointsRef.current, settingsRef.current));
       }
     }
+    redrawRef.current = redraw;
 
     function resize() {
       if (!canvas) return;
@@ -71,7 +97,7 @@ export default function Home() {
 
     // Restore persisted strokes.
     completedRef.current = loadStrokes();
-    outlinesRef.current = completedRef.current.map((s) => outlineFor(s.points));
+    outlinesRef.current = completedRef.current.map((s) => outlineFor(s.points, settingsRef.current));
     setStrokeCount(completedRef.current.length);
 
     resize();
@@ -106,7 +132,7 @@ export default function Home() {
           createdAt: Date.now(),
         };
         completedRef.current = [...completedRef.current, stroke];
-        outlinesRef.current = [...outlinesRef.current, outlineFor(stroke.points)];
+        outlinesRef.current = [...outlinesRef.current, outlineFor(stroke.points, settingsRef.current)];
         saveStrokes(completedRef.current);
         setStrokeCount(completedRef.current.length);
       }
@@ -130,6 +156,14 @@ export default function Home() {
     };
   }, []);
 
+  // Keep the ref in sync, and re-render every stroke already on screen whenever
+  // settings change — not just strokes drawn from now on.
+  useEffect(() => {
+    settingsRef.current = settings;
+    outlinesRef.current = completedRef.current.map((s) => outlineFor(s.points, settings));
+    redrawRef.current();
+  }, [settings]);
+
   function handleClear() {
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext("2d");
@@ -141,12 +175,99 @@ export default function Home() {
     setStrokeCount(0);
   }
 
+  function updateSetting<K extends keyof StrokeSettings>(key: K, value: StrokeSettings[K]) {
+    setSettings((s) => ({ ...s, [key]: value }));
+  }
+
   return (
     <div className={styles.page}>
       <header className={styles.header}>
         <h1>glypher — phase 1 capture</h1>
         <p>Write with a stylus, mouse, or finger. Strokes persist across reloads.</p>
       </header>
+
+      <div className={styles.toolbar}>
+        <div className={styles.modeToggle} role="radiogroup" aria-label="Stroke mode">
+          <button
+            type="button"
+            role="radio"
+            aria-checked={settings.mode === "mono"}
+            className={`${styles.modeBtn} ${settings.mode === "mono" ? styles.modeBtnActive : ""}`}
+            onClick={() => updateSetting("mode", "mono")}
+          >
+            Mono line
+          </button>
+          <button
+            type="button"
+            role="radio"
+            aria-checked={settings.mode === "dynamic"}
+            className={`${styles.modeBtn} ${settings.mode === "dynamic" ? styles.modeBtnActive : ""}`}
+            onClick={() => updateSetting("mode", "dynamic")}
+          >
+            Dynamic
+          </button>
+        </div>
+
+        <div className={styles.sliders}>
+          <label className={styles.sliderRow}>
+            <span>Size</span>
+            <input
+              type="range"
+              min={4}
+              max={60}
+              step={1}
+              value={settings.size}
+              onChange={(e) => updateSetting("size", Number(e.target.value))}
+            />
+            <span className={styles.val}>{settings.size}</span>
+          </label>
+          {settings.mode === "dynamic" && (
+            <>
+              <label className={styles.sliderRow}>
+                <span>Thinning</span>
+                <input
+                  type="range"
+                  min={-1}
+                  max={1}
+                  step={0.05}
+                  value={settings.thinning}
+                  onChange={(e) => updateSetting("thinning", Number(e.target.value))}
+                />
+                <span className={styles.val}>{settings.thinning.toFixed(2)}</span>
+              </label>
+              <label className={styles.sliderRow}>
+                <span>Smoothing</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={settings.smoothing}
+                  onChange={(e) => updateSetting("smoothing", Number(e.target.value))}
+                />
+                <span className={styles.val}>{settings.smoothing.toFixed(2)}</span>
+              </label>
+              <label className={styles.sliderRow}>
+                <span>Streamline</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={settings.streamline}
+                  onChange={(e) => updateSetting("streamline", Number(e.target.value))}
+                />
+                <span className={styles.val}>{settings.streamline.toFixed(2)}</span>
+              </label>
+            </>
+          )}
+        </div>
+
+        <button className={styles.clearBtn} onClick={handleClear} type="button">
+          Clear
+        </button>
+      </div>
+
       <div className={styles.canvasWrap}>
         <canvas ref={canvasRef} className={styles.canvas} />
         <dl className={styles.hud}>
@@ -159,9 +280,6 @@ export default function Home() {
           <dt>strokes saved</dt>
           <dd>{strokeCount}</dd>
         </dl>
-        <button className={styles.clearBtn} onClick={handleClear} type="button">
-          Clear
-        </button>
       </div>
     </div>
   );

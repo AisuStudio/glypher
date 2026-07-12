@@ -61,9 +61,6 @@
 .hud dd { margin: 0; text-align: right; }
 
 .clearBtn {
-  position: absolute;
-  top: var(--sp-md);
-  right: var(--sp-md);
   font-family: var(--font-mono);
   font-size: 12px;
   text-transform: uppercase;
@@ -74,8 +71,78 @@
   background: var(--color-vanilla);
   color: var(--color-text);
   cursor: pointer;
+  white-space: nowrap;
 }
 
 .clearBtn:hover {
   background: var(--color-lemon);
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-lg);
+  padding: var(--sp-sm) var(--sp-lg);
+  border-bottom: 1px solid var(--color-cappuccino);
+}
+
+.modeToggle {
+  display: flex;
+  border: 1px solid var(--color-blueberry);
+  border-radius: 6px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.modeBtn {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  padding: var(--sp-sm) var(--sp-md);
+  border: 0;
+  background: var(--color-vanilla);
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.modeBtn + .modeBtn {
+  border-left: 1px solid var(--color-blueberry);
+}
+
+.modeBtnActive {
+  background: var(--color-blueberry);
+  color: var(--color-vanilla);
+}
+
+.sliders {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-lg);
+  flex: 1;
+}
+
+.sliderRow {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-sm);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--color-muted);
+}
+
+.sliderRow span:first-child {
+  min-width: 66px;
+}
+
+.sliderRow input[type="range"] {
+  width: 110px;
+  accent-color: var(--color-grape);
+}
+
+.sliderRow .val {
+  min-width: 34px;
+  color: var(--color-text);
+  text-align: right;
 }
