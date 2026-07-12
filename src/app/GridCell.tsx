@@ -6,7 +6,8 @@ import styles from "./page.module.css";
 import { outlineToPath, type PathCommand } from "@/lib/contour";
 import type { Stroke, StrokePoint } from "@/lib/strokes";
 
-const CELL_STROKE_OPTIONS = { size: 8, thinning: 0.6, smoothing: 0.5, streamline: 0.5 };
+export type StrokeOptions = { size: number; thinning: number; smoothing: number; streamline: number };
+
 const CELL_COLOR = "#1f1934";
 
 function applyPath(ctx: CanvasRenderingContext2D, commands: PathCommand[]) {
@@ -28,17 +29,20 @@ function fillOutline(ctx: CanvasRenderingContext2D, outline: [number, number][])
 type Props = {
   label: string;
   outlines: [number, number][][];
+  strokeOptions: StrokeOptions;
   onStrokeComplete: (stroke: Stroke) => void;
 };
 
-export default function GridCell({ label, outlines, onStrokeComplete }: Props) {
+export default function GridCell({ label, outlines, strokeOptions, onStrokeComplete }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const pointsRef = useRef<StrokePoint[]>([]);
   const drawingRef = useRef(false);
   const outlinesRef = useRef(outlines);
+  const strokeOptionsRef = useRef(strokeOptions);
   const onStrokeCompleteRef = useRef(onStrokeComplete);
 
   outlinesRef.current = outlines;
+  strokeOptionsRef.current = strokeOptions;
   onStrokeCompleteRef.current = onStrokeComplete;
 
   useEffect(() => {
@@ -52,7 +56,7 @@ export default function GridCell({ label, outlines, onStrokeComplete }: Props) {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       for (const outline of outlinesRef.current) fillOutline(ctx, outline);
       if (pointsRef.current.length > 0) {
-        fillOutline(ctx, getStroke(pointsRef.current, CELL_STROKE_OPTIONS) as [number, number][]);
+        fillOutline(ctx, getStroke(pointsRef.current, strokeOptionsRef.current) as [number, number][]);
       }
     }
 

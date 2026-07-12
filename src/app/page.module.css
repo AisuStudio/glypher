@@ -279,11 +279,6 @@
   resize: none;
 }
 
-#copy-status {
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--color-muted);
-}
 
 .charsetToggle {
   display: flex;

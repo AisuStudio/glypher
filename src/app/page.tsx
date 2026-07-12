@@ -133,6 +133,7 @@ export default function Home() {
 
   const [viewMode, setViewMode] = useState<ViewMode>("draw");
   const viewModeRef = useRef(viewMode);
+  const showStrokeControls = (topMode === "write" && viewMode === "draw") || topMode === "grid";
 
   const [settings, setSettings] = useState<StrokeSettings>(DEFAULT_SETTINGS);
   const settingsRef = useRef(settings);
@@ -155,7 +156,6 @@ export default function Home() {
   const [strokeCount, setStrokeCount] = useState(0);
   const [redoCount, setRedoCount] = useState(0);
   const [exportJson, setExportJson] = useState("");
-  const [copyStatus, setCopyStatus] = useState("");
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -331,6 +331,13 @@ export default function Home() {
     saveStrokes(completedRef.current);
     setStrokeCount(completedRef.current.length);
     setRedoCount(redoStackRef.current.length);
+    // Grid mode ties a stroke to a glyph the moment it's drawn, so undoing it
+    // has to untie that too — same orphan cleanup as handleDeleteSelection.
+    setGlyphs((gs) =>
+      gs
+        .map((g) => ({ ...g, strokeIds: g.strokeIds.filter((id) => id !== last.id) }))
+        .filter((g) => g.strokeIds.length > 0)
+    );
     redrawRef.current();
   }
   undoRef.current = handleUndo;
@@ -439,13 +446,6 @@ export default function Home() {
     });
   }
 
-  function handleCopyJson() {
-    navigator.clipboard.writeText(exportJson).then(() => {
-      setCopyStatus("copied!");
-      setTimeout(() => setCopyStatus(""), 2000);
-    });
-  }
-
   function handleDownloadJson() {
     const blob = new Blob([exportJson], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -539,7 +539,7 @@ export default function Home() {
         </div>
         )}
 
-        {topMode === "write" && (viewMode === "draw" ? (
+        {showStrokeControls && (
           <>
             <div className={styles.modeToggle} role="radiogroup" aria-label="Stroke mode">
               <button
@@ -638,7 +638,9 @@ export default function Home() {
               </button>
             </div>
           </>
-        ) : viewMode === "review" ? (
+        )}
+
+        {topMode === "write" && viewMode === "review" && (
           <div className={styles.tagForm}>
             <div className={styles.modeToggle} role="radiogroup" aria-label="Glyph kind">
               <button
@@ -727,17 +729,15 @@ export default function Home() {
               Delete selection
             </button>
           </div>
-        ) : (
+        )}
+
+        {topMode === "write" && viewMode === "export" && (
           <div className={styles.tagForm}>
-            <button type="button" className={styles.clearBtn} onClick={handleCopyJson}>
-              Copy JSON
-            </button>
             <button type="button" className={styles.clearBtn} onClick={handleDownloadJson}>
               Download JSON
             </button>
-            {copyStatus && <span id="copy-status">{copyStatus}</span>}
           </div>
-        ))}
+        )}
 
         <button className={styles.clearBtn} onClick={handleClear} type="button">
           Clear all
@@ -801,6 +801,7 @@ export default function Home() {
                 key={letter}
                 label={letter}
                 outlines={cellOutlines}
+                strokeOptions={optionsFor(settings)}
                 onStrokeComplete={(stroke) => handleGridStroke(letter, stroke)}
               />
             );
