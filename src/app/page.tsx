@@ -9,12 +9,11 @@ import { anyPointInPolygon } from "@/lib/geometry";
 import { outlineToPath, pathToSvgD, type PathCommand } from "@/lib/contour";
 import { Undo2, Redo2 } from "lucide-react";
 import GridCell from "./GridCell";
+import { CHARACTER_SETS, DEFAULT_CHARACTER_SET_IDS } from "@/lib/charsets";
 
 type TopMode = "write" | "grid";
 type ViewMode = "draw" | "review" | "export";
 type StrokeMode = "mono" | "dynamic";
-
-const GRID_LETTERS = "abcdefghijklmnopqrstuvwxyz".split("");
 
 type StrokeSettings = {
   mode: StrokeMode;
@@ -120,6 +119,18 @@ export default function Home() {
   const redoRef = useRef<() => void>(() => {});
 
   const [topMode, setTopMode] = useState<TopMode>("write");
+  const [activeSetIds, setActiveSetIds] = useState<Set<string>>(new Set(DEFAULT_CHARACTER_SET_IDS));
+  const gridChars = CHARACTER_SETS.filter((s) => activeSetIds.has(s.id)).flatMap((s) => s.chars);
+
+  function toggleCharacterSet(id: string) {
+    setActiveSetIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
   const [viewMode, setViewMode] = useState<ViewMode>("draw");
   const viewModeRef = useRef(viewMode);
 
@@ -481,6 +492,21 @@ export default function Home() {
           </button>
         </div>
 
+        {topMode === "grid" && (
+          <div className={styles.charsetToggle}>
+            {CHARACTER_SETS.map((set) => (
+              <label key={set.id} className={styles.charsetOption}>
+                <input
+                  type="checkbox"
+                  checked={activeSetIds.has(set.id)}
+                  onChange={() => toggleCharacterSet(set.id)}
+                />
+                {set.label}
+              </label>
+            ))}
+          </div>
+        )}
+
         {topMode === "write" && (
         <div className={styles.modeToggle} role="radiogroup" aria-label="View mode">
           <button
@@ -762,7 +788,7 @@ export default function Home() {
 
       {topMode === "grid" && (
         <div className={styles.grid}>
-          {GRID_LETTERS.map((letter) => {
+          {gridChars.map((letter) => {
             const glyph = glyphs.find((g) => g.kind === "base" && g.name === letter);
             const cellOutlines = glyph
               ? glyph.strokeIds
