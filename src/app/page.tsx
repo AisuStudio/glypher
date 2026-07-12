@@ -578,7 +578,7 @@ export default function Home() {
             className={`${styles.modeBtn} ${viewMode === "review" ? styles.modeBtnActive : ""}`}
             onClick={() => setViewMode("review")}
           >
-            Review
+            Select
           </button>
           <button
             type="button"
