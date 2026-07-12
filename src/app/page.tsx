@@ -91,6 +91,26 @@ function compileDocument(glyphs: Glyph[], strokes: Stroke[], settings: StrokeSet
   };
 }
 
+const GRID_SPACING = 100;
+const GRID_COLOR = "#d9d7ce"; // cappuccino — subtle against the vanilla canvas background
+
+function drawGrid(ctx: CanvasRenderingContext2D, width: number, height: number) {
+  ctx.save();
+  ctx.strokeStyle = GRID_COLOR;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (let x = GRID_SPACING; x < width; x += GRID_SPACING) {
+    ctx.moveTo(x + 0.5, 0);
+    ctx.lineTo(x + 0.5, height);
+  }
+  for (let y = GRID_SPACING; y < height; y += GRID_SPACING) {
+    ctx.moveTo(0, y + 0.5);
+    ctx.lineTo(width, y + 0.5);
+  }
+  ctx.stroke();
+  ctx.restore();
+}
+
 function strokeLassoPath(ctx: CanvasRenderingContext2D, points: [number, number][]) {
   if (points.length < 2) return;
   ctx.save();
@@ -169,6 +189,7 @@ export default function Home() {
     function redraw() {
       if (!canvas || !ctx) return;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
+      drawGrid(ctx, canvas.clientWidth, canvas.clientHeight);
       const strokes = completedRef.current;
       const outlines = outlinesRef.current;
       for (let i = 0; i < strokes.length; i++) {
