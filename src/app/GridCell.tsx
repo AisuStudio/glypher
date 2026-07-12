@@ -6,6 +6,7 @@ import styles from "./page.module.css";
 import { outlineToPath, type PathCommand } from "@/lib/contour";
 import type { Stroke, StrokePoint } from "@/lib/strokes";
 import type { Metrics } from "@/lib/metrics";
+import { unicodeFor } from "@/lib/glyphs";
 
 export type StrokeOptions = { size: number; thinning: number; smoothing: number; streamline: number };
 
@@ -42,7 +43,7 @@ function drawGuides(
   rightBearing: number
 ) {
   ctx.save();
-  ctx.lineWidth = 1;
+  ctx.lineWidth = 0.5;
 
   ctx.strokeStyle = GUIDE_COLOR;
   ctx.setLineDash([3, 3]);
@@ -87,7 +88,7 @@ function drawGuides(
     ctx.beginPath();
     ctx.arc(hx, handleY, 4, 0, Math.PI * 2);
     ctx.strokeStyle = "#eae8e0"; // vanilla — ring for contrast against the stroke color
-    ctx.lineWidth = 1.5;
+    ctx.lineWidth = 0.5;
     ctx.stroke();
   }
 
@@ -268,10 +269,15 @@ export default function GridCell({
     for (const outline of outlines) fillOutline(ctx, outline);
   }, [outlines, metrics, leftBearing, rightBearing]);
 
+  const unicode = unicodeFor(label);
+
   return (
     <div className={styles.gridCell}>
       <canvas ref={canvasRef} className={styles.gridCellCanvas} />
-      <span className={styles.gridCellLabel}>{label}</span>
+      <div className={styles.gridCellLabelBar}>
+        <span className={styles.gridCellLabelChar}>{label}</span>
+        {unicode && <span className={styles.gridCellLabelUnicode}>{unicode}</span>}
+      </div>
     </div>
   );
 }

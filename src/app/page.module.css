@@ -366,12 +366,31 @@
   touch-action: none;
 }
 
-.gridCellLabel {
+.gridCellLabelBar {
   position: absolute;
-  bottom: 4px;
-  right: 6px;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  padding: 3px 6px;
+  background: var(--color-blueberry);
   font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--color-muted);
   pointer-events: none;
+}
+
+.gridCellLabelChar {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--color-vanilla);
+}
+
+.gridCellLabelUnicode {
+  font-size: 9px;
+  color: var(--color-hazelnut);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
