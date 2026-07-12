@@ -9,6 +9,7 @@ import { anyPointInPolygon } from "@/lib/geometry";
 import { outlineToPath, pathToSvgD, type PathCommand } from "@/lib/contour";
 import { Undo2, Redo2 } from "lucide-react";
 import GridCell from "./GridCell";
+import BetaBadge from "./BetaBadge";
 import { CHARACTER_SETS, DEFAULT_CHARACTER_SET_IDS } from "@/lib/charsets";
 
 type TopMode = "write" | "grid";
@@ -460,6 +461,7 @@ export default function Home() {
 
   return (
     <div className={styles.page}>
+      <BetaBadge />
       <header className={styles.header}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/GL_Logo.svg" alt="glypher" className={styles.logo} />
