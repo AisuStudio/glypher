@@ -187,7 +187,8 @@ export default function Home() {
 
   const [viewMode, setViewMode] = useState<ViewMode>("draw");
   const viewModeRef = useRef(viewMode);
-  const showStrokeControls = (topMode === "write" && viewMode === "draw") || topMode === "grid";
+  const showStrokeControls =
+    (topMode === "write" && viewMode === "draw") || (topMode === "grid" && viewMode !== "export");
 
   const [settings, setSettings] = useState<StrokeSettings>(DEFAULT_SETTINGS);
   const settingsRef = useRef(settings);
@@ -539,10 +540,10 @@ export default function Home() {
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/LS_Logo.svg" alt="letter.space" className={styles.logo} />
         <p>
-          {topMode === "grid" && "Draw directly into a letter's cell — no separate tagging step."}
+          {topMode === "grid" && viewMode !== "export" && "Draw directly into a letter's cell — no separate tagging step."}
           {topMode === "write" && viewMode === "draw" && "Write with a stylus, mouse, or finger. Strokes persist across reloads."}
           {topMode === "write" && viewMode === "review" && "Drag to lasso strokes, then give the selection a glyph name."}
-          {topMode === "write" && viewMode === "export" && "The compiled document — every tagged glyph resolved to real contours."}
+          {viewMode === "export" && "The compiled document — every tagged glyph resolved to real contours."}
         </p>
       </header>
 
@@ -568,7 +569,7 @@ export default function Home() {
           </button>
         </div>
 
-        {topMode === "grid" && (
+        {topMode === "grid" && viewMode !== "export" && (
           <div className={styles.charsetToggle}>
             {CHARACTER_SETS.map((set) => (
               <label key={set.id} className={styles.charsetOption}>
@@ -583,7 +584,7 @@ export default function Home() {
           </div>
         )}
 
-        {topMode === "grid" && (
+        {topMode === "grid" && viewMode !== "export" && (
           <div className={styles.sliders}>
             <label className={styles.sliderRow}>
               <span>Cell size</span>
@@ -658,7 +659,6 @@ export default function Home() {
           </div>
         )}
 
-        {topMode === "write" && (
         <div className={styles.modeToggle} role="radiogroup" aria-label="View mode">
           <button
             type="button"
@@ -688,7 +688,6 @@ export default function Home() {
             Export
           </button>
         </div>
-        )}
 
         {showStrokeControls && (
           <>
@@ -882,7 +881,7 @@ export default function Home() {
           </div>
         )}
 
-        {topMode === "write" && viewMode === "export" && (
+        {viewMode === "export" && (
           <div className={styles.tagForm}>
             <button type="button" className={styles.clearBtn} onClick={handleDownloadJson}>
               Download JSON
@@ -911,7 +910,7 @@ export default function Home() {
         </button>
       </div>
 
-      {topMode === "write" && viewMode === "export" && (
+      {viewMode === "export" && (
         <section className={styles.exportPanel}>
           <textarea className={styles.exportOutput} readOnly rows={20} value={exportJson} />
         </section>
@@ -953,7 +952,7 @@ export default function Home() {
         </dl>
       </div>
 
-      {topMode === "grid" && (
+      {topMode === "grid" && viewMode !== "export" && (
         <div
           className={styles.grid}
           style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${cellSize}px, 1fr))` }}
