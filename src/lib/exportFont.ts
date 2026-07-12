@@ -10,6 +10,11 @@ const ASCENT = 800;
 const DESCENT = -200;
 const DEFAULT_ADVANCE = 600;
 const SIDE_BEARING = 40;
+// Canvas strokes are drawn at whatever pixel size the user happened to use, with
+// no notion of "cap height." Each glyph gets its own drawn bounding box rescaled
+// to this height so nothing is exported microscopic or oversized relative to a
+// 1000-unit em — a reasonable cap-height-ish target, not a real calibration.
+const TARGET_GLYPH_HEIGHT = 700;
 
 type CompiledGlyph = {
   name: string;
@@ -25,33 +30,85 @@ type CompiledDocument = {
   glyphs: CompiledGlyph[];
 };
 
+type RawCommand =
+  | { type: "M"; x: number; y: number }
+  | { type: "Q"; cx: number; cy: number; x: number; y: number }
+  | { type: "Z" };
+
 const TOKEN_RE = /[MQZ]|-?\d+(?:\.\d+)?/g;
 
-// Feeds one "M x y Q cx cy x y Q ... Z" path string (src/lib/contour.ts output)
-// into an opentype.js Path — same parser shape as build_ttf.py's regex tokenizer.
-function addContourToPath(path: Path, d: string) {
+// Parses one "M x y Q cx cy x y Q ... Z" path string (src/lib/contour.ts
+// output) into structured commands — same token shape as build_ttf.py's regex
+// tokenizer, just kept as data instead of being fed straight into a pen, so a
+// bounding box can be computed before anything gets drawn.
+function parseContour(d: string): RawCommand[] {
   const tokens = d.match(TOKEN_RE) ?? [];
+  const commands: RawCommand[] = [];
   let i = 0;
-  let started = false;
   while (i < tokens.length) {
     const tok = tokens[i];
     if (tok === "M") {
-      path.moveTo(Number(tokens[i + 1]), Number(tokens[i + 2]));
-      started = true;
+      commands.push({ type: "M", x: Number(tokens[i + 1]), y: Number(tokens[i + 2]) });
       i += 3;
     } else if (tok === "Q") {
-      path.quadraticCurveTo(
-        Number(tokens[i + 1]),
-        Number(tokens[i + 2]),
-        Number(tokens[i + 3]),
-        Number(tokens[i + 4])
-      );
+      commands.push({
+        type: "Q",
+        cx: Number(tokens[i + 1]),
+        cy: Number(tokens[i + 2]),
+        x: Number(tokens[i + 3]),
+        y: Number(tokens[i + 4]),
+      });
       i += 5;
     } else {
+      commands.push({ type: "Z" });
       i += 1;
     }
   }
-  if (started) path.close();
+  return commands;
+}
+
+function boundsOf(contours: RawCommand[][]): { xmin: number; xmax: number; ymin: number; ymax: number } | null {
+  let xmin = Infinity;
+  let xmax = -Infinity;
+  let ymin = Infinity;
+  let ymax = -Infinity;
+  for (const commands of contours) {
+    for (const c of commands) {
+      if (c.type === "Z") continue;
+      xmin = Math.min(xmin, c.x);
+      xmax = Math.max(xmax, c.x);
+      ymin = Math.min(ymin, c.y);
+      ymax = Math.max(ymax, c.y);
+    }
+  }
+  return xmin === Infinity ? null : { xmin, xmax, ymin, ymax };
+}
+
+// Canvas space is x-right/y-down with no baseline; font space is x-right/y-up
+// with y=0 as the baseline. Maps each glyph's own drawn bbox to sit on the
+// baseline (bbox bottom -> y=0) at TARGET_GLYPH_HEIGHT tall, left edge at
+// SIDE_BEARING. Applied uniformly to on-curve and control points alike, which
+// is safe — an affine transform commutes with quadratic Bezier evaluation.
+function addContourToPath(
+  path: Path,
+  commands: RawCommand[],
+  xmin: number,
+  baselineY: number,
+  scale: number
+) {
+  const tx = (x: number) => (x - xmin) * scale + SIDE_BEARING;
+  const ty = (y: number) => (baselineY - y) * scale;
+  let started = false;
+  for (const c of commands) {
+    if (c.type === "M") {
+      path.moveTo(tx(c.x), ty(c.y));
+      started = true;
+    } else if (c.type === "Q") {
+      path.quadraticCurveTo(tx(c.cx), ty(c.cy), tx(c.x), ty(c.y));
+    } else if (started) {
+      path.close();
+    }
+  }
 }
 
 function glyphNameFor(entry: CompiledGlyph): string {
@@ -71,13 +128,18 @@ export function buildFont(doc: CompiledDocument, familyName = "Glypher Sketch"):
   const glyphs: Glyph[] = [notdefGlyph];
 
   for (const entry of doc.glyphs) {
-    const path = new Path();
-    for (const d of entry.contours) addContourToPath(path, d);
+    const contours = entry.contours.map(parseContour);
+    const bbox = boundsOf(contours);
 
-    const bounds = path.getBoundingBox();
-    const advanceWidth = bounds.isEmpty()
-      ? DEFAULT_ADVANCE
-      : Math.max(Math.round(bounds.x2 + SIDE_BEARING), 1);
+    const path = new Path();
+    let advanceWidth = DEFAULT_ADVANCE;
+
+    if (bbox) {
+      const height = bbox.ymax - bbox.ymin;
+      const scale = height > 0 ? TARGET_GLYPH_HEIGHT / height : 1;
+      for (const commands of contours) addContourToPath(path, commands, bbox.xmin, bbox.ymax, scale);
+      advanceWidth = Math.max(Math.round((bbox.xmax - bbox.xmin) * scale + 2 * SIDE_BEARING), 1);
+    }
 
     const unicodes =
       entry.kind === "base" && entry.unicode

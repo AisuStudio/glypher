@@ -24,31 +24,69 @@ ASCENT = 800
 DESCENT = -200
 DEFAULT_ADVANCE = 600
 SIDE_BEARING = 40
+# Canvas strokes are drawn at whatever pixel size the user happened to use, with
+# no notion of "cap height." Each glyph gets its own drawn bounding box rescaled
+# to this height so nothing comes out microscopic or oversized relative to a
+# 1000-unit em - a reasonable cap-height-ish target, not a real calibration.
+TARGET_GLYPH_HEIGHT = 700
 
 TOKEN_RE = re.compile(r"[MQZ]|-?\d+(?:\.\d+)?")
 
 
-def parse_path_into_pen(d, pen):
-    """Feeds one 'M x y Q cx cy x y Q ... Z' path string into a glyph pen."""
+def parse_path_commands(d):
+    """Parses one 'M x y Q cx cy x y Q ... Z' path string into structured
+    commands, kept as data (not fed straight into a pen) so a bounding box can
+    be computed before anything gets drawn."""
     tokens = TOKEN_RE.findall(d)
+    commands = []
     i = 0
-    started = False
     while i < len(tokens):
         tok = tokens[i]
         if tok == "M":
-            x, y = float(tokens[i + 1]), float(tokens[i + 2])
-            pen.moveTo((x, y))
-            started = True
+            commands.append(("M", float(tokens[i + 1]), float(tokens[i + 2])))
             i += 3
         elif tok == "Q":
-            cx, cy = float(tokens[i + 1]), float(tokens[i + 2])
-            x, y = float(tokens[i + 3]), float(tokens[i + 4])
-            pen.qCurveTo((cx, cy), (x, y))
+            commands.append(
+                ("Q", float(tokens[i + 1]), float(tokens[i + 2]), float(tokens[i + 3]), float(tokens[i + 4]))
+            )
             i += 5
         else:
+            commands.append(("Z",))
             i += 1
-    if started:
-        pen.closePath()
+    return commands
+
+
+def bounds_of(contours):
+    xs = [c[-2] for cmds in contours for c in cmds if c[0] != "Z"]
+    ys = [c[-1] for cmds in contours for c in cmds if c[0] != "Z"]
+    if not xs:
+        return None
+    return min(xs), max(xs), min(ys), max(ys)
+
+
+def feed_pen(commands, pen, xmin, baseline_y, scale):
+    """Canvas space is x-right/y-down with no baseline; font space is x-right/
+    y-up with y=0 as the baseline. Maps the glyph's own drawn bbox to sit on
+    the baseline (bbox bottom -> y=0) at TARGET_GLYPH_HEIGHT tall, left edge
+    at SIDE_BEARING. Applied uniformly to on-curve and control points alike,
+    which is safe - an affine transform commutes with quadratic Bezier
+    evaluation."""
+
+    def tx(x):
+        return (x - xmin) * scale + SIDE_BEARING
+
+    def ty(y):
+        return (baseline_y - y) * scale
+
+    started = False
+    for c in commands:
+        if c[0] == "M":
+            pen.moveTo((tx(c[1]), ty(c[2])))
+            started = True
+        elif c[0] == "Q":
+            pen.qCurveTo((tx(c[1]), ty(c[2])), (tx(c[3]), ty(c[4])))
+        elif started:
+            pen.closePath()
 
 
 def glyph_name_for(entry):
@@ -72,8 +110,14 @@ def build_font(doc, family_name="Glypher Sketch"):
     for entry in doc.get("glyphs", []):
         name = glyph_name_for(entry)
         pen = TTGlyphPen(None)
-        for d in entry.get("contours", []):
-            parse_path_into_pen(d, pen)
+        contours = [parse_path_commands(d) for d in entry.get("contours", [])]
+        bounds = bounds_of(contours)
+        if bounds:
+            xmin, _xmax, ymin, ymax = bounds
+            height = ymax - ymin
+            scale = TARGET_GLYPH_HEIGHT / height if height > 0 else 1
+            for commands in contours:
+                feed_pen(commands, pen, xmin, ymax, scale)
         glyph = pen.glyph()
         glyphs[name] = glyph
         glyph_order.append(name)
