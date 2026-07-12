@@ -18,9 +18,15 @@ function outlineFor(points: StrokePoint[]): [number, number][] {
 
 function fillOutline(ctx: CanvasRenderingContext2D, outline: [number, number][]) {
   if (outline.length < 3) return;
+  // Connect outline points with quadratic curves through their midpoints instead of
+  // straight lines — perfect-freehand's raw polygon looks faceted otherwise.
   ctx.beginPath();
   ctx.moveTo(outline[0][0], outline[0][1]);
-  for (let i = 1; i < outline.length; i++) ctx.lineTo(outline[i][0], outline[i][1]);
+  for (let i = 0; i < outline.length; i++) {
+    const [x0, y0] = outline[i];
+    const [x1, y1] = outline[(i + 1) % outline.length];
+    ctx.quadraticCurveTo(x0, y0, (x0 + x1) / 2, (y0 + y1) / 2);
+  }
   ctx.closePath();
   ctx.fillStyle = "#1f1934";
   ctx.fill();
