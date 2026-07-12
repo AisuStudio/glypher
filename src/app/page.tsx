@@ -605,9 +605,26 @@ export default function Home() {
                 max={1}
                 step={0.01}
                 value={metrics.ascender}
-                onChange={(e) => updateMetric("ascender", Math.min(Number(e.target.value), metrics.baseline - 0.02))}
+                onChange={(e) => updateMetric("ascender", Math.min(Number(e.target.value), metrics.xHeight - 0.02))}
               />
               <span className={styles.val}>{metrics.ascender.toFixed(2)}</span>
+            </label>
+            <label className={styles.sliderRow}>
+              <span>X-height</span>
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.01}
+                value={metrics.xHeight}
+                onChange={(e) =>
+                  updateMetric(
+                    "xHeight",
+                    Math.min(Math.max(Number(e.target.value), metrics.ascender + 0.02), metrics.baseline - 0.02)
+                  )
+                }
+              />
+              <span className={styles.val}>{metrics.xHeight.toFixed(2)}</span>
             </label>
             <label className={styles.sliderRow}>
               <span>Baseline</span>
@@ -620,7 +637,7 @@ export default function Home() {
                 onChange={(e) =>
                   updateMetric(
                     "baseline",
-                    Math.min(Math.max(Number(e.target.value), metrics.ascender + 0.02), metrics.descender - 0.02)
+                    Math.min(Math.max(Number(e.target.value), metrics.xHeight + 0.02), metrics.descender - 0.02)
                   )
                 }
               />

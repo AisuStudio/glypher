@@ -4,12 +4,14 @@
 // depending on viewport width.
 export type Metrics = {
   ascender: number; // 0-1, distance from cell top
+  xHeight: number; // 0-1, distance from cell top — between ascender and baseline
   baseline: number; // 0-1, distance from cell top
   descender: number; // 0-1, distance from cell top
 };
 
 export const DEFAULT_METRICS: Metrics = {
   ascender: 0.15,
+  xHeight: 0.45,
   baseline: 0.75,
   descender: 0.95,
 };

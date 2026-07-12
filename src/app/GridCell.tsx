@@ -49,9 +49,12 @@ function drawGuides(
   ctx.setLineDash([3, 3]);
   ctx.beginPath();
   const ascY = Math.round(metrics.ascender * height) + 0.5;
+  const xHeightY = Math.round(metrics.xHeight * height) + 0.5;
   const descY = Math.round(metrics.descender * height) + 0.5;
   ctx.moveTo(0, ascY);
   ctx.lineTo(width, ascY);
+  ctx.moveTo(0, xHeightY);
+  ctx.lineTo(width, xHeightY);
   ctx.moveTo(0, descY);
   ctx.lineTo(width, descY);
   ctx.stroke();
