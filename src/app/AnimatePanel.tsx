@@ -46,7 +46,7 @@ export default function AnimatePanel({
 
   return (
     <div className={styles.animatePanel}>
-      <div className={styles.tagForm}>
+      <div className={styles.toolbar}>
         <input
           type="text"
           className={styles.nameInput}
@@ -90,7 +90,7 @@ export default function AnimatePanel({
       </div>
 
       {layout.missing.length > 0 && (
-        <span className={styles.unicodeHint}>missing glyphs: {layout.missing.join(" ")}</span>
+        <div className={styles.animateWarning}>missing glyphs: {layout.missing.join(" ")}</div>
       )}
 
       <div className={styles.animatePreview}>

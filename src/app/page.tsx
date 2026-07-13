@@ -681,6 +681,8 @@ export default function Home() {
         </button>
       </header>
 
+      <div className={styles.labBanner}>LabMode, more coming soon!</div>
+
       <div className={styles.toolbar}>
         {topMode === "grid" && viewMode !== "export" && (
           <div className={styles.charsetToggle}>
