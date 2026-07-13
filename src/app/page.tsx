@@ -6,14 +6,15 @@ import styles from "./page.module.css";
 import { clearStrokes, loadStrokes, saveStrokes, type Stroke, type StrokePoint } from "@/lib/strokes";
 import { loadGlyphs, saveGlyphs, unicodeFor, type Glyph, type GlyphKind } from "@/lib/glyphs";
 import { anyPointInPolygon, pointInPolygon } from "@/lib/geometry";
-import { outlineToPath, pathToSvgD, unionOutlines, type PathCommand } from "@/lib/contour";
+import { outlineToPath, pathToSvgD, skeletonToPath, unionOutlines, type PathCommand } from "@/lib/contour";
+import { simplifyStrokeIndices } from "@/lib/simplify";
 import { downloadFont } from "@/lib/exportFont";
 import { downloadSkeletonSvg } from "@/lib/exportSkeleton";
 import { saveFile } from "@/lib/saveFile";
 import { loadMetrics, saveMetrics, type Metrics } from "@/lib/metrics";
 import { loadSettings, saveSettings, type StrokeSettings } from "@/lib/settings";
 import { downloadProjectFile, parseProjectFile, applyProjectFile } from "@/lib/projectFile";
-import { Undo2, Redo2, PenTool, SquareDashed, Eraser, LineSquiggle, Grid3x3, BookA, Sparkle, Download } from "lucide-react";
+import { Undo2, Redo2, PenTool, SquareDashed, Eraser, LineSquiggle, Grid3x3, BookA, Sparkle, Download, SplinePointer } from "lucide-react";
 import GridCell, { DEFAULT_LEFT_BEARING, DEFAULT_RIGHT_BEARING } from "./GridCell";
 import BetaBadge from "./BetaBadge";
 import { CHARACTER_SETS, DEFAULT_CHARACTER_SET_IDS } from "@/lib/charsets";
@@ -25,11 +26,17 @@ import { DEFAULT_PRESET_ID, type AnimationPresetId } from "@/lib/animationPreset
 // stroke to its glyph the moment it's drawn, so there's nothing to assign.
 type TopMode = "draw" | "assign" | "animate" | "export";
 type DrawStyle = "free" | "grid";
-type DrawTool = "pen" | "eraser";
+// Modify (like Assign) only ever applies to Free — reshaping a Grid cell's
+// single-letter stroke via anchors isn't the point of that view.
+type DrawTool = "pen" | "eraser" | "modify";
 
 const COLOR_DEFAULT = "#1f1934"; // blueberry — untagged
 const COLOR_SELECTED = "#d8ff01"; // lemon — pending selection
 const COLOR_TAGGED = "#5100ff"; // grape — assigned to a glyph
+const ANCHOR_COLOR = "#5100ff"; // grape — matches the draggable-affordance color used elsewhere (GridCell's bearing handles)
+const ANCHOR_RING_COLOR = "#eae8e0"; // vanilla — ring for contrast against the stroke color
+const SKELETON_GUIDE_COLOR = "#9e9c95"; // hazelnut
+const ANCHOR_HIT_PX = 8;
 
 function optionsFor(settings: StrokeSettings) {
   return {
@@ -48,6 +55,7 @@ function applyPath(ctx: CanvasRenderingContext2D, commands: PathCommand[]) {
   for (const c of commands) {
     if (c.type === "M") ctx.moveTo(c.x, c.y);
     else if (c.type === "Q") ctx.quadraticCurveTo(c.cx, c.cy, c.x, c.y);
+    else if (c.type === "L") ctx.lineTo(c.x, c.y);
     else ctx.closePath();
   }
 }
@@ -184,6 +192,18 @@ export default function Home() {
   const [drawTool, setDrawTool] = useState<DrawTool>("pen");
   const drawToolRef = useRef(drawTool);
 
+  // Modify tool: which stroke is currently being reshaped, its anchor
+  // indices (Douglas-Peucker-simplified — see src/lib/simplify.ts), whether
+  // this session's stroke has already been resampled down to just those
+  // anchors (only happens once, lazily, on the first anchor drag — see the
+  // comment at the drag-start site), and which anchor is mid-drag. All refs,
+  // not state: redraw() is called explicitly after every mutation here,
+  // same as the rest of this canvas's pointer-driven state.
+  const editingStrokeIdRef = useRef<string | null>(null);
+  const anchorIndicesRef = useRef<number[]>([]);
+  const resampledRef = useRef(false);
+  const draggingAnchorRef = useRef<number | null>(null);
+
   const [settings, setSettings] = useState<StrokeSettings>(() => loadSettings());
   const settingsRef = useRef(settings);
 
@@ -223,11 +243,14 @@ export default function Home() {
       const strokes = completedRef.current;
       const outlines = outlinesRef.current;
       for (let i = 0; i < strokes.length; i++) {
-        const color = selectedIdsRef.current.has(strokes[i].id)
-          ? COLOR_SELECTED
-          : taggedIdsRef.current.has(strokes[i].id)
-            ? COLOR_TAGGED
-            : COLOR_DEFAULT;
+        const color =
+          strokes[i].id === editingStrokeIdRef.current
+            ? COLOR_SELECTED
+            : selectedIdsRef.current.has(strokes[i].id)
+              ? COLOR_SELECTED
+              : taggedIdsRef.current.has(strokes[i].id)
+                ? COLOR_TAGGED
+                : COLOR_DEFAULT;
         fillOutline(ctx, outlines[i], color);
       }
       if (topModeRef.current === "draw" && currentPointsRef.current.length > 0) {
@@ -235,6 +258,35 @@ export default function Home() {
       }
       if (topModeRef.current === "assign" && lassoRef.current.length > 1) {
         strokeLassoPath(ctx, lassoRef.current);
+      }
+      if (drawToolRef.current === "modify" && editingStrokeIdRef.current) {
+        const stroke = strokes.find((s) => s.id === editingStrokeIdRef.current);
+        if (stroke) {
+          // The literal "core path" — the raw pen centerline, not the filled
+          // perfect-freehand outline — rendered live for the first time
+          // anywhere in the app (previously only ever consumed by the
+          // static Skeleton SVG export).
+          ctx.save();
+          ctx.beginPath();
+          applyPath(ctx, skeletonToPath(stroke.points.map((p) => [p[0], p[1]] as [number, number])));
+          ctx.strokeStyle = SKELETON_GUIDE_COLOR;
+          ctx.lineWidth = 1;
+          ctx.stroke();
+          ctx.restore();
+
+          for (const idx of anchorIndicesRef.current) {
+            const [ax, ay] = stroke.points[idx];
+            ctx.beginPath();
+            ctx.arc(ax, ay, 4, 0, Math.PI * 2);
+            ctx.fillStyle = ANCHOR_COLOR;
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(ax, ay, 4, 0, Math.PI * 2);
+            ctx.strokeStyle = ANCHOR_RING_COLOR;
+            ctx.lineWidth = 0.5;
+            ctx.stroke();
+          }
+        }
       }
     }
     redrawRef.current = redraw;
@@ -273,6 +325,11 @@ export default function Home() {
         redraw();
         return;
       }
+      if (topModeRef.current === "draw" && drawToolRef.current === "modify") {
+        handleModifyPointerDown(p[0], p[1]);
+        redraw();
+        return;
+      }
       drawingRef.current = true;
       if (topModeRef.current === "draw") {
         currentPointsRef.current = [p];
@@ -288,6 +345,22 @@ export default function Home() {
         canvas!.style.cursor = "crosshair";
         return;
       }
+      if (topModeRef.current === "draw" && drawToolRef.current === "modify") {
+        if (draggingAnchorRef.current !== null && editingStrokeIdRef.current) {
+          const idx = completedRef.current.findIndex((s) => s.id === editingStrokeIdRef.current);
+          if (idx !== -1) {
+            const stroke = completedRef.current[idx];
+            const pointIdx = anchorIndicesRef.current[draggingAnchorRef.current];
+            const prevPressure = stroke.points[pointIdx][2];
+            stroke.points[pointIdx] = [p[0], p[1], prevPressure];
+            outlinesRef.current[idx] = outlineFor(stroke.points, settingsRef.current);
+            redraw();
+          }
+          return;
+        }
+        canvas!.style.cursor = editingStrokeIdRef.current ? "grab" : "pointer";
+        return;
+      }
       canvas!.style.cursor = "";
       if (!drawingRef.current) return;
       if (topModeRef.current === "draw") {
@@ -299,6 +372,15 @@ export default function Home() {
     }
 
     function onPointerUp(e: PointerEvent) {
+      if (topModeRef.current === "draw" && drawToolRef.current === "modify") {
+        if (draggingAnchorRef.current !== null) {
+          draggingAnchorRef.current = null;
+          saveStrokes(completedRef.current);
+        }
+        canvas!.releasePointerCapture(e.pointerId);
+        redraw();
+        return;
+      }
       if (topModeRef.current === "draw") {
         if (drawingRef.current && currentPointsRef.current.length > 1) {
           const stroke: Stroke = {
@@ -355,12 +437,30 @@ export default function Home() {
     currentPointsRef.current = [];
     lassoRef.current = [];
     setSelectedIds([]);
+    exitModifyEditing();
     redrawRef.current();
   }, [topMode]);
 
   useEffect(() => {
     drawToolRef.current = drawTool;
+    if (drawTool !== "modify") exitModifyEditing();
+    redrawRef.current();
   }, [drawTool]);
+
+  useEffect(() => {
+    exitModifyEditing();
+    redrawRef.current();
+  }, [drawStyle]);
+
+  // Leaving the Modify tool (or switching away from Draw/Free entirely, see
+  // above) clears which stroke was being reshaped — a stale editing session
+  // shouldn't reappear later just because the tool got reselected.
+  function exitModifyEditing() {
+    editingStrokeIdRef.current = null;
+    anchorIndicesRef.current = [];
+    resampledRef.current = false;
+    draggingAnchorRef.current = null;
+  }
 
   useEffect(() => {
     selectedIdsRef.current = new Set(selectedIds);
@@ -517,6 +617,64 @@ export default function Home() {
       }
     }
     return false;
+  }
+
+  // Is (x, y) within grabbing distance of one of the currently-editing
+  // stroke's anchor handles? Returns the anchor's rank (its position within
+  // `indices`, not the raw point index) so the caller has a stable handle
+  // that survives the lazy resample below (resampling preserves order, so
+  // rank i always means "the same anchor" before and after).
+  function anchorNear(x: number, y: number, points: StrokePoint[], indices: number[]): number | null {
+    for (let rank = indices.length - 1; rank >= 0; rank--) {
+      const [px, py] = points[indices[rank]];
+      if (Math.hypot(x - px, y - py) <= ANCHOR_HIT_PX) return rank;
+    }
+    return null;
+  }
+
+  // Modify tool click: if already editing a stroke, first check for an
+  // anchor grab (and start dragging it — lazily resampling the stroke down
+  // to just its anchors on the very first drag of this session, see the
+  // comment inline). Otherwise, clicking any stroke (including the one
+  // already being edited) starts/switches the editing session onto it;
+  // clicking empty space exits editing. Topmost (last-drawn) stroke wins,
+  // same convention as the Eraser tool and GridCell's select mode.
+  function handleModifyPointerDown(x: number, y: number) {
+    if (editingStrokeIdRef.current) {
+      const idx = completedRef.current.findIndex((s) => s.id === editingStrokeIdRef.current);
+      if (idx !== -1) {
+        const stroke = completedRef.current[idx];
+        const rank = anchorNear(x, y, stroke.points, anchorIndicesRef.current);
+        if (rank !== null) {
+          if (!resampledRef.current) {
+            // Non-destructive up to this exact moment: a stroke the user
+            // merely selects (or drags near but never actually grabs) stays
+            // byte-for-byte untouched. Only an actual anchor grab collapses
+            // the dense raw samples down to just the retained anchors, so
+            // moving one afterward reshapes the segment the way a real
+            // vector-tool edit would, instead of nudging one sample among
+            // dozens that immediately pull the curve back.
+            stroke.points = anchorIndicesRef.current.map((i) => stroke.points[i]);
+            anchorIndicesRef.current = stroke.points.map((_, i) => i);
+            resampledRef.current = true;
+            outlinesRef.current[idx] = outlineFor(stroke.points, settingsRef.current);
+          }
+          draggingAnchorRef.current = rank;
+          return;
+        }
+      }
+    }
+
+    for (let i = completedRef.current.length - 1; i >= 0; i--) {
+      if (pointInPolygon([x, y], outlinesRef.current[i])) {
+        const stroke = completedRef.current[i];
+        editingStrokeIdRef.current = stroke.id;
+        anchorIndicesRef.current = simplifyStrokeIndices(stroke.points.map((p) => [p[0], p[1]]));
+        resampledRef.current = false;
+        return;
+      }
+    }
+    exitModifyEditing();
   }
 
   function handleGridStroke(letter: string, stroke: Stroke, cellWidth: number, cellHeight: number) {
@@ -839,6 +997,19 @@ export default function Home() {
             >
               <Eraser size={16} strokeWidth={2} />
             </button>
+            {drawStyle === "free" && (
+              <button
+                type="button"
+                role="radio"
+                aria-checked={drawTool === "modify"}
+                className={`${styles.modeBtn} ${styles.iconOnlyBtn} ${drawTool === "modify" ? styles.modeBtnActive : ""}`}
+                onClick={() => setDrawTool("modify")}
+                aria-label="Modify"
+                title="Modify"
+              >
+                <SplinePointer size={16} strokeWidth={2} />
+              </button>
+            )}
           </div>
         )}
 
@@ -1094,7 +1265,7 @@ export default function Home() {
                 key={letter}
                 label={letter}
                 strokes={cellStrokes}
-                tool={drawTool}
+                tool={drawTool === "eraser" ? "eraser" : "pen"}
                 onEraseStroke={(id) => deleteStrokes(new Set([id]))}
                 strokeOptions={optionsFor(settings)}
                 onStrokeComplete={(stroke, cellWidth, cellHeight) =>
