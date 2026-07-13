@@ -5,9 +5,10 @@ import { seededRandom, randomRange } from "./random";
 // style hook — the shared setup (colors, base stroke look, the
 // transform-box/transform-origin fix below) lives once in BASE_CSS so it
 // isn't duplicated per preset.
-export type AnimationPresetId = "pulse" | "thinBold" | "dotted";
+export type AnimationPresetId = "pulse" | "thinBold" | "dotted" | "rough";
 
 export type PathStyleContext = { glyphId: string; strokeIndex: number; points: [number, number][] };
+export type GlyphCssContext = { glyphId: string; index: number };
 
 export type AnimationPreset = {
   id: AnimationPresetId;
@@ -22,6 +23,12 @@ export type AnimationPreset = {
   // geometry (path length) or need per-path randomness, neither of which a
   // CSS formula alone can express.
   pathAttrs?: (ctx: PathStyleContext) => string;
+  // Extra CSS text emitted once PER GLYPH OCCURRENCE (not shared like `css`
+  // above) — for effects whose randomized values can't be expressed as a
+  // single shared formula, e.g. Rough's uniquely seeded per-instance
+  // @keyframes. Targets `.ls-glyph[data-ls-i="N"]` (see exportAnimation.ts),
+  // which uniquely selects that one occurrence.
+  glyphCss?: (ctx: GlyphCssContext) => string;
 };
 
 // SVG elements have no bbox-relative transform-origin by default — without
@@ -128,7 +135,51 @@ const dottedPreset: AnimationPreset = {
   },
 };
 
-export const ANIMATION_PRESETS: AnimationPreset[] = [pulsePreset, thinBoldPreset, dottedPreset];
+const ROUGH_STEPS = 6;
+const ROUGH_MAX_OFFSET = 1.6; // px
+const ROUGH_MAX_ROTATE = 0.8; // deg
+
+// CSS-only approximation of "roughening" — a small randomized wobble, not a
+// true turbulence/displacement-map distortion of the letterform itself.
+// SVG's <filter>+feTurbulence/feDisplacementMap could do the latter, animated
+// via SMIL <animate> on the filter primitives, but that combination has
+// known inconsistent cross-browser support and CSS itself cannot animate
+// filter-primitive attributes at all — not worth the fragility for this
+// preset. Left as a documented future upgrade path, not built here.
+const roughPreset: AnimationPreset = {
+  id: "rough",
+  label: "Rough",
+  css: `
+.ls-glyph {
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+}
+`,
+  // Seeded by glyph id + OCCURRENCE INDEX — the deliberate opposite of
+  // Dotted's policy: repeated letters should wobble independently for a
+  // livelier, more organic feel, rather than sharing one texture.
+  glyphCss: ({ glyphId, index }) => {
+    const rng = seededRandom(`${glyphId}:occurrence:${index}`);
+    const duration = randomRange(rng, 1.6, 2.6);
+    const name = `ls-rough-${index}`;
+    const stops = Array.from({ length: ROUGH_STEPS + 1 }, (_, i) => {
+      const pct = Math.round((i / ROUGH_STEPS) * 100);
+      // First and last steps must match (both zero) for a seamless loop —
+      // an infinite animation jumps straight from 100% back to 0%.
+      const atEdge = i === 0 || i === ROUGH_STEPS;
+      const dx = atEdge ? 0 : randomRange(rng, -ROUGH_MAX_OFFSET, ROUGH_MAX_OFFSET);
+      const dy = atEdge ? 0 : randomRange(rng, -ROUGH_MAX_OFFSET, ROUGH_MAX_OFFSET);
+      const rot = atEdge ? 0 : randomRange(rng, -ROUGH_MAX_ROTATE, ROUGH_MAX_ROTATE);
+      return `${pct}% { transform: translate(${dx.toFixed(2)}px, ${dy.toFixed(2)}px) rotate(${rot.toFixed(2)}deg); }`;
+    }).join(" ");
+    return `
+@keyframes ${name} { ${stops} }
+.ls-glyph[data-ls-i="${index}"] { animation-name: ${name}; animation-duration: ${duration.toFixed(2)}s; }
+`;
+  },
+};
+
+export const ANIMATION_PRESETS: AnimationPreset[] = [pulsePreset, thinBoldPreset, dottedPreset, roughPreset];
 export const DEFAULT_PRESET_ID: AnimationPresetId = ANIMATION_PRESETS[0].id;
 
 export function getPreset(id: AnimationPresetId): AnimationPreset {

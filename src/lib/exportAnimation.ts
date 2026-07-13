@@ -19,6 +19,7 @@ function round(n: number): number {
 export function buildAnimationSvg(layout: TextLayout, presetId: AnimationPresetId): { svg: string; css: string } {
   const preset = getPreset(presetId);
   let glyphIndex = 0;
+  const glyphCss: string[] = [];
 
   const groups = layout.entries.map((entry) => {
     if (entry.kind !== "glyph") return "";
@@ -32,6 +33,8 @@ export function buildAnimationSvg(layout: TextLayout, presetId: AnimationPresetI
       })
       .join("");
 
+    if (preset.glyphCss) glyphCss.push(preset.glyphCss({ glyphId: entry.glyph.id, index }));
+
     // Layout position lives on a plain SVG transform ATTRIBUTE on the outer
     // <g>; the preset's CSS only ever touches the inner .ls-glyph group. This
     // split matters — a CSS `transform` (even one only ever applied via an
@@ -41,10 +44,13 @@ export function buildAnimationSvg(layout: TextLayout, presetId: AnimationPresetI
     // moment the animation kicks in. `--ls-i` is the glyph's left-to-right
     // index as an inherited custom property — presets read it (via
     // `calc(var(--ls-i) * ...)`) to stagger either .ls-glyph or its
-    // .ls-stroke children, whichever the effect actually animates.
+    // .ls-stroke children, whichever the effect actually animates. The
+    // `data-ls-i` attribute mirrors the same index for presets (Rough) that
+    // need to target one specific glyph occurrence directly instead of
+    // computing a shared formula from it.
     return (
       `<g transform="translate(${round(entry.offsetX)} ${round(entry.offsetY)}) scale(${round(entry.scale)})">` +
-      `<g class="ls-glyph" data-char="${escapeXml(entry.glyph.name)}" style="--ls-i:${index}">${paths}</g>` +
+      `<g class="ls-glyph" data-char="${escapeXml(entry.glyph.name)}" data-ls-i="${index}" style="--ls-i:${index}">${paths}</g>` +
       `</g>`
     );
   });
@@ -53,13 +59,20 @@ export function buildAnimationSvg(layout: TextLayout, presetId: AnimationPresetI
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${round(layout.width)} ${round(layout.height)}" ` +
     `width="${round(layout.width)}" height="${round(layout.height)}">${groups.join("")}</svg>`;
 
-  return { svg, css: BASE_CSS + preset.css };
+  return { svg, css: BASE_CSS + preset.css + glyphCss.join("") };
+}
+
+// The Copy-embed-code button's payload: a <style> tag plus the <svg> markup,
+// pasteable directly into the middle of an existing page — unlike
+// buildAnimationHtml below, this is a fragment, not a full document.
+export function buildAnimationEmbed(svg: string, css: string): string {
+  return `<style>\n${css}</style>\n${svg}`;
 }
 
 // Wraps the fragment into a standalone, double-clickable HTML file — for the
-// Download button. The copy-embed-code path (Phase 3) uses buildAnimationSvg's
-// {svg, css} fragment directly instead, since a full <!doctype html> document
-// isn't something you paste into the middle of an existing page.
+// Download button. The copy-embed-code path uses buildAnimationEmbed above
+// instead, since a full <!doctype html> document isn't something you paste
+// into the middle of an existing page.
 export function buildAnimationHtml(
   text: string,
   glyphs: Glyph[],

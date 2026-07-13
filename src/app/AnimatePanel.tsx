@@ -1,9 +1,9 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import styles from "./page.module.css";
 import { layoutText } from "@/lib/layoutText";
-import { buildAnimationSvg, downloadAnimationHtml } from "@/lib/exportAnimation";
+import { buildAnimationSvg, buildAnimationEmbed, downloadAnimationHtml } from "@/lib/exportAnimation";
 import { ANIMATION_PRESETS, type AnimationPresetId } from "@/lib/animationPresets";
 import type { Glyph } from "@/lib/glyphs";
 import type { Stroke } from "@/lib/strokes";
@@ -34,6 +34,15 @@ export default function AnimatePanel({
   const layout = useMemo(() => layoutText(text, glyphs, strokes, metrics), [text, glyphs, strokes, metrics]);
   const { svg, css } = useMemo(() => buildAnimationSvg(layout, presetId), [layout, presetId]);
   const hasGlyphs = layout.entries.some((e) => e.kind === "glyph");
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
+
+  function handleCopy() {
+    navigator.clipboard
+      .writeText(buildAnimationEmbed(svg, css))
+      .then(() => setCopyState("copied"))
+      .catch(() => setCopyState("failed"));
+    setTimeout(() => setCopyState("idle"), 1500);
+  }
 
   return (
     <div className={styles.animatePanel}>
@@ -60,6 +69,15 @@ export default function AnimatePanel({
             </button>
           ))}
         </div>
+
+        <button
+          type="button"
+          className={`${styles.clearBtn} ${copyState === "failed" ? styles.dangerBtn : ""}`}
+          onClick={handleCopy}
+          disabled={!hasGlyphs}
+        >
+          {copyState === "copied" ? "Copied!" : copyState === "failed" ? "Copy failed" : "Copy embed code"}
+        </button>
 
         <button
           type="button"
