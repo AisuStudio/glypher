@@ -1,4 +1,4 @@
-import { skeletonToPath, pathToSvgD } from "./contour";
+import { skeletonToPath, pathToSvgD, escapeXml } from "./contour";
 import { saveFile } from "./saveFile";
 import type { Glyph } from "./glyphs";
 import type { Stroke } from "./strokes";
@@ -12,10 +12,6 @@ const CELL_SIZE = 240;
 const GAP = 24;
 const LABEL_HEIGHT = 20;
 const COLS = 8;
-
-function escapeXml(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
 
 function bounds(points: [number, number][]): { xmin: number; xmax: number; ymin: number; ymax: number } | null {
   if (points.length === 0) return null;

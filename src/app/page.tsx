@@ -15,8 +15,10 @@ import { Undo2, Redo2 } from "lucide-react";
 import GridCell, { DEFAULT_LEFT_BEARING, DEFAULT_RIGHT_BEARING } from "./GridCell";
 import BetaBadge from "./BetaBadge";
 import { CHARACTER_SETS, DEFAULT_CHARACTER_SET_IDS } from "@/lib/charsets";
+import AnimatePanel from "./AnimatePanel";
+import { DEFAULT_PRESET_ID, type AnimationPresetId } from "@/lib/animationPresets";
 
-type TopMode = "write" | "grid";
+type TopMode = "write" | "grid" | "animate";
 type ViewMode = "draw" | "review" | "export";
 type StrokeMode = "mono" | "dynamic";
 
@@ -206,6 +208,9 @@ export default function Home() {
   function handleToggleSelect(id: string) {
     setSelectedIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]));
   }
+
+  const [animateText, setAnimateText] = useState("");
+  const [animatePresetId, setAnimatePresetId] = useState<AnimationPresetId>(DEFAULT_PRESET_ID);
 
   const [nameInput, setNameInput] = useState("");
   const [kindInput, setKindInput] = useState<GlyphKind>("base");
@@ -564,37 +569,55 @@ export default function Home() {
           >
             Grid
           </button>
+          <button
+            type="button"
+            role="radio"
+            aria-checked={topMode === "animate"}
+            className={`${styles.modeBtn} ${topMode === "animate" ? styles.modeBtnActive : ""}`}
+            onClick={() => {
+              setTopMode("animate");
+              // Animate has no Draw/Select/Export sub-states of its own — its
+              // export action lives inside AnimatePanel. Resetting here keeps
+              // a stale "export"/"review" viewMode from also rendering the
+              // Write/Grid export panel or tag form underneath AnimatePanel.
+              setViewMode("draw");
+            }}
+          >
+            Animate
+          </button>
         </div>
 
-        <div className={styles.modeToggle} role="radiogroup" aria-label="View mode">
-          <button
-            type="button"
-            role="radio"
-            aria-checked={viewMode === "draw"}
-            className={`${styles.modeBtn} ${viewMode === "draw" ? styles.modeBtnActive : ""}`}
-            onClick={() => setViewMode("draw")}
-          >
-            Draw
-          </button>
-          <button
-            type="button"
-            role="radio"
-            aria-checked={viewMode === "review"}
-            className={`${styles.modeBtn} ${viewMode === "review" ? styles.modeBtnActive : ""}`}
-            onClick={() => setViewMode("review")}
-          >
-            Select
-          </button>
-          <button
-            type="button"
-            role="radio"
-            aria-checked={viewMode === "export"}
-            className={`${styles.modeBtn} ${viewMode === "export" ? styles.modeBtnActive : ""}`}
-            onClick={() => setViewMode("export")}
-          >
-            Export
-          </button>
-        </div>
+        {topMode !== "animate" && (
+          <div className={styles.modeToggle} role="radiogroup" aria-label="View mode">
+            <button
+              type="button"
+              role="radio"
+              aria-checked={viewMode === "draw"}
+              className={`${styles.modeBtn} ${viewMode === "draw" ? styles.modeBtnActive : ""}`}
+              onClick={() => setViewMode("draw")}
+            >
+              Draw
+            </button>
+            <button
+              type="button"
+              role="radio"
+              aria-checked={viewMode === "review"}
+              className={`${styles.modeBtn} ${viewMode === "review" ? styles.modeBtnActive : ""}`}
+              onClick={() => setViewMode("review")}
+            >
+              Select
+            </button>
+            <button
+              type="button"
+              role="radio"
+              aria-checked={viewMode === "export"}
+              className={`${styles.modeBtn} ${viewMode === "export" ? styles.modeBtnActive : ""}`}
+              onClick={() => setViewMode("export")}
+            >
+              Export
+            </button>
+          </div>
+        )}
 
         <div className={styles.undoRedo}>
           <button
@@ -989,6 +1012,18 @@ export default function Home() {
             );
           })}
         </div>
+      )}
+
+      {topMode === "animate" && (
+        <AnimatePanel
+          glyphs={glyphs}
+          strokes={completedRef.current}
+          metrics={metrics}
+          text={animateText}
+          onTextChange={setAnimateText}
+          presetId={animatePresetId}
+          onPresetChange={setAnimatePresetId}
+        />
       )}
     </div>
   );
