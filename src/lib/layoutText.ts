@@ -1,5 +1,5 @@
 import type { Glyph } from "./glyphs";
-import type { Stroke } from "./strokes";
+import type { Stroke, StrokePoint } from "./strokes";
 import type { Metrics } from "./metrics";
 
 // A shared row-of-text pixel space for the Animate preview/export — not a
@@ -14,7 +14,12 @@ export type LaidOutEntry =
   | {
       kind: "glyph";
       glyph: Glyph;
-      strokePointSets: [number, number][][];
+      // Raw, untransformed points — pressure kept (unlike everything else in
+      // this file, which only ever needed x/y) so a pressure-sensitive
+      // canvas renderer (Editor mode) can feed these straight into
+      // perfect-freehand. Callers that only need x/y (skeleton/SVG export)
+      // just map it away.
+      strokePointSets: StrokePoint[][];
       scale: number;
       offsetX: number;
       offsetY: number;
@@ -81,7 +86,7 @@ export function layoutText(text: string, glyphs: Glyph[], strokes: Stroke[], met
     const strokePointSets = glyph.strokeIds
       .map((id) => byId.get(id))
       .filter((s): s is Stroke => Boolean(s))
-      .map((s) => s.points.map((p) => [p[0], p[1]] as [number, number]));
+      .map((s) => s.points);
 
     let scale: number;
     let offsetX: number;
@@ -107,7 +112,7 @@ export function layoutText(text: string, glyphs: Glyph[], strokes: Stroke[], met
       // shared baseline. If there's no ink at all (shouldn't normally happen,
       // but a tagged glyph could in principle have lost its strokes), treat
       // the character as missing rather than crash on a null bbox.
-      const bbox = bounds(strokePointSets.flat());
+      const bbox = bounds(strokePointSets.flat().map((p) => [p[0], p[1]] as [number, number]));
       if (!bbox) {
         missing.add(char);
         entries.push({ kind: "missing", advanceWidth: SPACE_ADVANCE, char });

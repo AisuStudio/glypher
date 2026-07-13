@@ -14,18 +14,21 @@ import { saveFile } from "@/lib/saveFile";
 import { loadMetrics, saveMetrics, type Metrics } from "@/lib/metrics";
 import { loadSettings, saveSettings, type StrokeSettings } from "@/lib/settings";
 import { downloadProjectFile, parseProjectFile, applyProjectFile } from "@/lib/projectFile";
-import { Undo2, Redo2, PenTool, SquareDashed, Eraser, LineSquiggle, Grid3x3, BookA, Sparkle, Download, SplinePointer } from "lucide-react";
+import { Undo2, Redo2, PenTool, SquareDashed, Eraser, LineSquiggle, Grid3x3, BookA, Sparkle, Download, SplinePointer, NotebookPen } from "lucide-react";
 import GridCell, { DEFAULT_LEFT_BEARING, DEFAULT_RIGHT_BEARING } from "./GridCell";
 import BetaBadge from "./BetaBadge";
 import { CHARACTER_SETS, DEFAULT_CHARACTER_SET_IDS } from "@/lib/charsets";
 import AnimatePanel from "./AnimatePanel";
+import EditorPanel from "./EditorPanel";
 import { DEFAULT_PRESET_ID, type AnimationPresetId } from "@/lib/animationPresets";
 
-// Draw has two styles (Free = the old "Write" freeform canvas, Grid = one
-// glyph per cell); Assign only ever applies to Free — Grid already tags a
-// stroke to its glyph the moment it's drawn, so there's nothing to assign.
+// Draw has three styles: Free (the old "Write" freeform canvas), Grid (one
+// glyph per cell), and Editor (compose/preview text using already-tagged
+// glyphs — no drawing of its own yet). Assign only ever applies to Free —
+// Grid already tags a stroke to its glyph the moment it's drawn, so there's
+// nothing to assign there.
 type TopMode = "draw" | "assign" | "animate" | "export";
-type DrawStyle = "free" | "grid";
+type DrawStyle = "free" | "grid" | "editor";
 // Modify (like Assign) only ever applies to Free — reshaping a Grid cell's
 // single-letter stroke via anchors isn't the point of that view.
 type DrawTool = "pen" | "eraser" | "modify";
@@ -169,6 +172,16 @@ export default function Home() {
     window.localStorage.setItem("glypher.cellSize.v1", String(size));
   }
 
+  const [editorText, setEditorText] = useState(() => {
+    if (typeof window === "undefined") return "";
+    return window.localStorage.getItem("glypher.editorText.v1") ?? "";
+  });
+
+  function updateEditorText(text: string) {
+    setEditorText(text);
+    window.localStorage.setItem("glypher.editorText.v1", text);
+  }
+
   function toggleCharacterSet(id: string) {
     setActiveSetIds((prev) => {
       const next = new Set(prev);
@@ -187,7 +200,10 @@ export default function Home() {
   }
 
   const topModeRef = useRef(topMode);
-  const showStrokeControls = topMode === "draw";
+  // Editor has no stroke settings/tools of its own yet (Phase 1 is
+  // read-only composition) — Free and Grid still get the full Pen/Eraser/
+  // Modify + stroke-appearance controls.
+  const showStrokeControls = topMode === "draw" && drawStyle !== "editor";
 
   const [drawTool, setDrawTool] = useState<DrawTool>("pen");
   const drawToolRef = useRef(drawTool);
@@ -834,6 +850,17 @@ export default function Home() {
             >
               <Grid3x3 size={16} strokeWidth={2} />
             </button>
+            <button
+              type="button"
+              role="radio"
+              aria-checked={drawStyle === "editor"}
+              className={`${styles.modeBtn} ${styles.iconOnlyBtn} ${drawStyle === "editor" ? styles.modeBtnActive : ""}`}
+              onClick={() => setDrawStyle("editor")}
+              aria-label="Editor"
+              title="Editor"
+            >
+              <NotebookPen size={16} strokeWidth={2} />
+            </button>
           </div>
         )}
 
@@ -973,7 +1000,7 @@ export default function Home() {
           </div>
         )}
 
-        {topMode === "draw" && (
+        {topMode === "draw" && drawStyle !== "editor" && (
           <div className={styles.modeToggle} role="radiogroup" aria-label="Draw tool">
             <button
               type="button"
@@ -1279,6 +1306,17 @@ export default function Home() {
             );
           })}
         </div>
+      )}
+
+      {topMode === "draw" && drawStyle === "editor" && (
+        <EditorPanel
+          glyphs={glyphs}
+          strokes={completedRef.current}
+          metrics={metrics}
+          settings={settings}
+          text={editorText}
+          onTextChange={updateEditorText}
+        />
       )}
 
       {topMode === "animate" && (

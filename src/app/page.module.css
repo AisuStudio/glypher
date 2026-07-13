@@ -355,6 +355,37 @@
   display: block;
 }
 
+.editorPanel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.editorInput {
+  height: 140px;
+  padding: var(--sp-md) var(--sp-lg);
+  border: none;
+  border-bottom: 1px solid var(--color-cappuccino);
+  font-family: var(--font-mono);
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--color-text);
+  background: var(--color-vanilla);
+  resize: vertical;
+}
+
+.editorInput::placeholder {
+  color: var(--color-muted);
+}
+
+.editorCanvas {
+  flex: 1;
+  width: 100%;
+  display: block;
+  background: var(--color-vanilla);
+}
+
 .charsetToggle {
   display: flex;
   flex-wrap: wrap;

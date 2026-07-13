@@ -26,7 +26,11 @@ export function buildAnimationSvg(layout: TextLayout, presetId: AnimationPresetI
     const index = glyphIndex++;
 
     const paths = entry.strokePointSets
-      .map((points, strokeIndex) => {
+      .map((strokePoints, strokeIndex) => {
+        // layoutText keeps pressure in strokePointSets for the sake of
+        // pressure-sensitive canvas renderers (Editor mode) — the
+        // skeleton/centerline path here only ever needs x/y.
+        const points = strokePoints.map((p) => [p[0], p[1]] as [number, number]);
         const d = pathToSvgD(skeletonToPath(points));
         const extraAttrs = preset.pathAttrs?.({ glyphId: entry.glyph.id, strokeIndex, points }) ?? "";
         return `<path class="ls-stroke" d="${d}" ${extraAttrs}/>`;
