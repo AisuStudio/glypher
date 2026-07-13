@@ -720,19 +720,6 @@ export default function Home() {
         <button className={styles.clearBtn} onClick={handleClear} type="button">
           Clear all
         </button>
-
-        {((topMode === "draw" && drawStyle === "free") || topMode === "assign") && (
-          <dl className={styles.hud}>
-            <dt>pointerType</dt>
-            <dd>{hud.pointerType}</dd>
-            <dt>pressure</dt>
-            <dd>{hud.pressure.toFixed(2)}</dd>
-            <dt>x, y</dt>
-            <dd>{hud.x}, {hud.y}</dd>
-            <dt>strokes saved</dt>
-            <dd>{strokeCount}</dd>
-          </dl>
-        )}
       </header>
 
       <div className={styles.labBanner}>LabMode, more coming soon!</div>
@@ -1133,6 +1120,27 @@ export default function Home() {
           presetId={animatePresetId}
           onPresetChange={setAnimatePresetId}
         />
+      )}
+
+      {((topMode === "draw" && drawStyle === "free") || topMode === "assign") && (
+        <div className={styles.hud}>
+          <span className={styles.hudItem}>
+            <span className={styles.hudLabel}>pointerType</span>
+            {hud.pointerType}
+          </span>
+          <span className={styles.hudItem}>
+            <span className={styles.hudLabel}>pressure</span>
+            {hud.pressure.toFixed(2)}
+          </span>
+          <span className={styles.hudItem}>
+            <span className={styles.hudLabel}>x, y</span>
+            {hud.x}, {hud.y}
+          </span>
+          <span className={styles.hudItem}>
+            <span className={styles.hudLabel}>strokesSaved</span>
+            {strokeCount}
+          </span>
+        </div>
       )}
     </div>
   );

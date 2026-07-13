@@ -87,21 +87,25 @@
 }
 
 .hud {
-  display: grid;
-  grid-template-columns: auto auto;
-  gap: 2px var(--sp-md);
-  padding: var(--sp-sm) var(--sp-md);
-  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-lg);
+  padding: var(--sp-sm) var(--sp-lg);
   background: var(--color-blueberry);
   color: var(--color-vanilla);
   font-family: var(--font-mono);
   font-size: 12px;
-  margin-left: auto;
   flex-shrink: 0;
 }
 
-.hud dt { opacity: .6; }
-.hud dd { margin: 0; text-align: right; }
+.hudItem {
+  display: inline-flex;
+  gap: var(--sp-sm);
+}
+
+.hudLabel {
+  opacity: .6;
+}
 
 .clearBtn {
   font-family: var(--font-mono);
