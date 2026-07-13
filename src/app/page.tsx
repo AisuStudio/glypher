@@ -54,6 +54,62 @@ function outlineFor(points: StrokePoint[], settings: StrokeSettings): [number, n
   return getStroke(points, optionsFor(settings)) as [number, number][];
 }
 
+// Lowercase letters that dip below the baseline (their body still sits in
+// the x-height band, only the tail extends to the descender line) vs. ones
+// that reach the ascender line — used to pick which pair of guide lines a
+// bbox-fallback glyph's own bounding box gets normalized against below. Any
+// name not covered here (uppercase, digits, accented letters, ligatures)
+// falls back to the full ascender-to-baseline band.
+const DESCENDER_LETTERS = new Set(["g", "j", "p", "q", "y"]);
+const ASCENDER_LETTERS = new Set(["b", "d", "f", "h", "k", "l", "t"]);
+
+function bandFor(name: string, metrics: Metrics): { top: number; bottom: number } {
+  const isLowerLatin = name.length === 1 && name >= "a" && name <= "z";
+  if (isLowerLatin) {
+    if (DESCENDER_LETTERS.has(name)) return { top: metrics.xHeight, bottom: metrics.descender };
+    if (ASCENDER_LETTERS.has(name)) return { top: metrics.ascender, bottom: metrics.baseline };
+    return { top: metrics.xHeight, bottom: metrics.baseline };
+  }
+  return { top: metrics.ascender, bottom: metrics.baseline };
+}
+
+// Glyphs tagged via Free-mode Assign carry raw pen coordinates captured on
+// the large Free canvas (e.g. x in the hundreds) — rendered as-is inside a
+// Grid cell's own small canvas (~90px), they land far outside the visible
+// area. Grid-native glyphs (drawn directly in a cell, cellWidth/cellHeight
+// set) are already calibrated to a cell and must pass through unchanged.
+// This rescales+recenters a bbox-fallback glyph's combined stroke bbox to
+// fit its own letter-appropriate guide band (x-height/ascender/descender —
+// a lowercase "a" belongs in the x-height, not stretched up to the full
+// ascender height) — same idea as layoutText.ts's bbox-fallback transform
+// but centered (a single grid cell isn't part of a text line) and band-aware.
+function fitStrokesToCell(
+  glyphStrokes: Stroke[],
+  glyphName: string,
+  cellWidthPx: number,
+  cellHeightPx: number,
+  metrics: Metrics
+): StrokePoint[][] {
+  const allPoints = glyphStrokes.flatMap((s) => s.points);
+  if (allPoints.length === 0) return glyphStrokes.map(() => []);
+  let xmin = Infinity, xmax = -Infinity, ymin = Infinity, ymax = -Infinity;
+  for (const [x, y] of allPoints) {
+    xmin = Math.min(xmin, x); xmax = Math.max(xmax, x);
+    ymin = Math.min(ymin, y); ymax = Math.max(ymax, y);
+  }
+  const h = ymax - ymin || 1;
+  const { top, bottom } = bandFor(glyphName, metrics);
+  const targetHeight = Math.max((bottom - top) * cellHeightPx, 1);
+  const scale = targetHeight / h;
+  const bottomPx = bottom * cellHeightPx;
+  const offsetY = bottomPx - ymax * scale;
+  const w = (xmax - xmin) * scale;
+  const offsetX = (cellWidthPx - w) / 2 - xmin * scale;
+  return glyphStrokes.map((s) =>
+    s.points.map((p) => [p[0] * scale + offsetX, p[1] * scale + offsetY, p[2]] as StrokePoint)
+  );
+}
+
 function applyPath(ctx: CanvasRenderingContext2D, commands: PathCommand[]) {
   for (const c of commands) {
     if (c.type === "M") ctx.moveTo(c.x, c.y);
@@ -1291,12 +1347,20 @@ export default function Home() {
         >
           {gridChars.map((letter) => {
             const glyph = glyphs.find((g) => g.kind === "base" && g.name === letter);
-            const cellStrokes = glyph
+            const glyphStrokes = glyph
               ? glyph.strokeIds
                   .map((id) => completedRef.current.find((s) => s.id === id))
                   .filter((s): s is Stroke => Boolean(s))
-                  .map((s) => ({ id: s.id, outline: outlineFor(s.points, settings) }))
               : [];
+            const needsFit = glyph && !(glyph.cellWidth && glyph.cellHeight);
+            const cellHeightPx = cellSize * (16 / 9);
+            const fittedPoints = needsFit
+              ? fitStrokesToCell(glyphStrokes, letter, cellSize, cellHeightPx, metrics)
+              : glyphStrokes.map((s) => s.points);
+            const cellStrokes = glyphStrokes.map((s, i) => ({
+              id: s.id,
+              outline: outlineFor(fittedPoints[i], settings),
+            }));
             return (
               <GridCell
                 key={letter}
