@@ -5,13 +5,13 @@ import { getStroke } from "perfect-freehand";
 import styles from "./page.module.css";
 import { clearStrokes, loadStrokes, saveStrokes, type Stroke, type StrokePoint } from "@/lib/strokes";
 import { loadGlyphs, saveGlyphs, unicodeFor, type Glyph, type GlyphKind } from "@/lib/glyphs";
-import { anyPointInPolygon } from "@/lib/geometry";
+import { anyPointInPolygon, pointInPolygon } from "@/lib/geometry";
 import { outlineToPath, pathToSvgD, unionOutlines, type PathCommand } from "@/lib/contour";
 import { downloadFont } from "@/lib/exportFont";
 import { downloadSkeletonSvg } from "@/lib/exportSkeleton";
 import { saveFile } from "@/lib/saveFile";
 import { loadMetrics, saveMetrics, type Metrics } from "@/lib/metrics";
-import { Undo2, Redo2 } from "lucide-react";
+import { Undo2, Redo2, PenTool, SquareDashed, Eraser } from "lucide-react";
 import GridCell, { DEFAULT_LEFT_BEARING, DEFAULT_RIGHT_BEARING } from "./GridCell";
 import BetaBadge from "./BetaBadge";
 import { CHARACTER_SETS, DEFAULT_CHARACTER_SET_IDS } from "@/lib/charsets";
@@ -21,6 +21,7 @@ import { DEFAULT_PRESET_ID, type AnimationPresetId } from "@/lib/animationPreset
 type TopMode = "write" | "grid" | "animate";
 type ViewMode = "draw" | "review" | "export";
 type StrokeMode = "mono" | "dynamic";
+type DrawTool = "pen" | "eraser";
 
 type StrokeSettings = {
   mode: StrokeMode;
@@ -192,6 +193,9 @@ export default function Home() {
   const showStrokeControls =
     (topMode === "write" && viewMode === "draw") || (topMode === "grid" && viewMode !== "export");
 
+  const [drawTool, setDrawTool] = useState<DrawTool>("pen");
+  const drawToolRef = useRef(drawTool);
+
   const [settings, setSettings] = useState<StrokeSettings>(DEFAULT_SETTINGS);
   const settingsRef = useRef(settings);
 
@@ -279,19 +283,29 @@ export default function Home() {
 
     function onPointerDown(e: PointerEvent) {
       canvas!.setPointerCapture(e.pointerId);
-      drawingRef.current = true;
       const p = pointFromEvent(e);
+      setHud({ pointerType: e.pointerType, pressure: e.pressure, x: Math.round(p[0]), y: Math.round(p[1]) });
+      if (viewModeRef.current === "draw" && drawToolRef.current === "eraser") {
+        eraseAt(p[0], p[1]);
+        redraw();
+        return;
+      }
+      drawingRef.current = true;
       if (viewModeRef.current === "draw") {
         currentPointsRef.current = [p];
       } else {
         lassoRef.current = [[p[0], p[1]]];
       }
-      setHud({ pointerType: e.pointerType, pressure: e.pressure, x: Math.round(p[0]), y: Math.round(p[1]) });
     }
 
     function onPointerMove(e: PointerEvent) {
       const p = pointFromEvent(e);
       setHud({ pointerType: e.pointerType, pressure: e.pressure, x: Math.round(p[0]), y: Math.round(p[1]) });
+      if (viewModeRef.current === "draw" && drawToolRef.current === "eraser") {
+        canvas!.style.cursor = "crosshair";
+        return;
+      }
+      canvas!.style.cursor = "";
       if (!drawingRef.current) return;
       if (viewModeRef.current === "draw") {
         currentPointsRef.current.push(p);
@@ -361,6 +375,10 @@ export default function Home() {
   }, [viewMode]);
 
   useEffect(() => {
+    drawToolRef.current = drawTool;
+  }, [drawTool]);
+
+  useEffect(() => {
     selectedIdsRef.current = new Set(selectedIds);
     redrawRef.current();
   }, [selectedIds]);
@@ -400,7 +418,7 @@ export default function Home() {
     setStrokeCount(completedRef.current.length);
     setRedoCount(redoStackRef.current.length);
     // Grid mode ties a stroke to a glyph the moment it's drawn, so undoing it
-    // has to untie that too — same orphan cleanup as handleDeleteSelection.
+    // has to untie that too — same orphan cleanup as deleteStrokes.
     setGlyphs((gs) =>
       gs
         .map((g) => ({ ...g, strokeIds: g.strokeIds.filter((id) => id !== last.id) }))
@@ -468,9 +486,12 @@ export default function Home() {
     setGlyphs((gs) => gs.filter((g) => g.id !== id));
   }
 
-  function handleDeleteSelection() {
-    if (selectedIds.length === 0) return;
-    const idsToDelete = new Set(selectedIds);
+  // Shared by the Assign panel's "Clear selection" bulk path (now removed —
+  // deleting moved to the Eraser tool in Draw mode) and the Eraser's
+  // single-stroke click-to-delete: either way it's just "remove these ids
+  // from completedRef/outlinesRef and untie them from any glyph."
+  function deleteStrokes(idsToDelete: Set<string>) {
+    if (idsToDelete.size === 0) return;
     const survivors = completedRef.current
       .map((stroke, i) => ({ stroke, outline: outlinesRef.current[i] }))
       .filter(({ stroke }) => !idsToDelete.has(stroke.id));
@@ -485,7 +506,20 @@ export default function Home() {
         .map((g) => ({ ...g, strokeIds: g.strokeIds.filter((id) => !idsToDelete.has(id)) }))
         .filter((g) => g.strokeIds.length > 0)
     );
-    setSelectedIds([]);
+    setSelectedIds((ids) => ids.filter((id) => !idsToDelete.has(id)));
+  }
+
+  // Eraser tool: click a completed stroke in Draw mode to delete it
+  // immediately, no lasso/select step needed. Topmost (last-drawn) stroke
+  // wins when strokes overlap — same convention as GridCell's select mode.
+  function eraseAt(x: number, y: number): boolean {
+    for (let i = completedRef.current.length - 1; i >= 0; i--) {
+      if (pointInPolygon([x, y], outlinesRef.current[i])) {
+        deleteStrokes(new Set([completedRef.current[i].id]));
+        return true;
+      }
+    }
+    return false;
   }
 
   function handleGridStroke(letter: string, stroke: Stroke, cellWidth: number, cellHeight: number) {
@@ -548,17 +582,18 @@ export default function Home() {
       <BetaBadge />
       <header className={styles.header}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/LS_Logo.svg" alt="letter.space" className={styles.logo} />
+        <img src="/GL_Logo.svg" alt="letter.space" className={styles.logo} />
 
         <div className={styles.modeToggle} role="radiogroup" aria-label="Top mode">
           <button
             type="button"
             role="radio"
             aria-checked={topMode === "write"}
-            className={`${styles.modeBtn} ${topMode === "write" ? styles.modeBtnActive : ""}`}
+            className={`${styles.modeBtn} ${styles.iconOnlyBtn} ${topMode === "write" ? styles.modeBtnActive : ""}`}
             onClick={() => setTopMode("write")}
+            aria-label="Write"
           >
-            Write
+            <PenTool size={16} strokeWidth={2} />
           </button>
           <button
             type="button"
@@ -602,10 +637,11 @@ export default function Home() {
               type="button"
               role="radio"
               aria-checked={viewMode === "review"}
-              className={`${styles.modeBtn} ${viewMode === "review" ? styles.modeBtnActive : ""}`}
+              className={`${styles.modeBtn} ${styles.iconOnlyBtn} ${viewMode === "review" ? styles.modeBtnActive : ""}`}
               onClick={() => setViewMode("review")}
+              aria-label="Assign"
             >
-              Select
+              <SquareDashed size={16} strokeWidth={2} />
             </button>
             <button
               type="button"
@@ -733,6 +769,31 @@ export default function Home() {
               />
               <span className={styles.val}>{metrics.descender.toFixed(2)}</span>
             </label>
+          </div>
+        )}
+
+        {viewMode === "draw" && topMode !== "animate" && (
+          <div className={styles.modeToggle} role="radiogroup" aria-label="Draw tool">
+            <button
+              type="button"
+              role="radio"
+              aria-checked={drawTool === "pen"}
+              className={`${styles.modeBtn} ${styles.iconOnlyBtn} ${drawTool === "pen" ? styles.modeBtnActive : ""}`}
+              onClick={() => setDrawTool("pen")}
+              aria-label="Pen"
+            >
+              <PenTool size={16} strokeWidth={2} />
+            </button>
+            <button
+              type="button"
+              role="radio"
+              aria-checked={drawTool === "eraser"}
+              className={`${styles.modeBtn} ${styles.iconOnlyBtn} ${drawTool === "eraser" ? styles.modeBtnActive : ""}`}
+              onClick={() => setDrawTool("eraser")}
+              aria-label="Eraser"
+            >
+              <Eraser size={16} strokeWidth={2} />
+            </button>
           </div>
         )}
 
@@ -901,14 +962,6 @@ export default function Home() {
             >
               Clear selection
             </button>
-            <button
-              type="button"
-              className={`${styles.clearBtn} ${styles.dangerBtn}`}
-              onClick={handleDeleteSelection}
-              disabled={selectedIds.length === 0}
-            >
-              Delete selection
-            </button>
           </div>
         )}
 
@@ -998,8 +1051,10 @@ export default function Home() {
                 label={letter}
                 strokes={cellStrokes}
                 mode={viewMode === "review" ? "select" : "draw"}
+                tool={drawTool}
                 selectedIds={selectedIdsSet}
                 onToggleSelect={handleToggleSelect}
+                onEraseStroke={(id) => deleteStrokes(new Set([id]))}
                 strokeOptions={optionsFor(settings)}
                 onStrokeComplete={(stroke, cellWidth, cellHeight) =>
                   handleGridStroke(letter, stroke, cellWidth, cellHeight)

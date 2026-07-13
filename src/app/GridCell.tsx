@@ -11,6 +11,7 @@ import { unicodeFor } from "@/lib/glyphs";
 
 export type StrokeOptions = { size: number; thinning: number; smoothing: number; streamline: number };
 export type CellMode = "draw" | "select";
+export type CellTool = "pen" | "eraser";
 export type CellStroke = { id: string; outline: [number, number][] };
 
 const CELL_COLOR = "#1f1934";
@@ -106,8 +107,10 @@ type Props = {
   label: string;
   strokes: CellStroke[];
   mode: CellMode;
+  tool: CellTool;
   selectedIds: Set<string>;
   onToggleSelect: (id: string) => void;
+  onEraseStroke: (id: string) => void;
   strokeOptions: StrokeOptions;
   onStrokeComplete: (stroke: Stroke, cellWidth: number, cellHeight: number) => void;
   metrics: Metrics;
@@ -120,8 +123,10 @@ export default function GridCell({
   label,
   strokes,
   mode,
+  tool,
   selectedIds,
   onToggleSelect,
+  onEraseStroke,
   strokeOptions,
   onStrokeComplete,
   metrics,
@@ -134,8 +139,10 @@ export default function GridCell({
   const drawingRef = useRef(false);
   const strokesRef = useRef(strokes);
   const modeRef = useRef(mode);
+  const toolRef = useRef(tool);
   const selectedIdsRef = useRef(selectedIds);
   const onToggleSelectRef = useRef(onToggleSelect);
+  const onEraseStrokeRef = useRef(onEraseStroke);
   const strokeOptionsRef = useRef(strokeOptions);
   const onStrokeCompleteRef = useRef(onStrokeComplete);
   const metricsRef = useRef(metrics);
@@ -145,8 +152,10 @@ export default function GridCell({
 
   strokesRef.current = strokes;
   modeRef.current = mode;
+  toolRef.current = tool;
   selectedIdsRef.current = selectedIds;
   onToggleSelectRef.current = onToggleSelect;
+  onEraseStrokeRef.current = onEraseStroke;
   strokeOptionsRef.current = strokeOptions;
   onStrokeCompleteRef.current = onStrokeComplete;
   metricsRef.current = metrics;
@@ -218,6 +227,17 @@ export default function GridCell({
         draggingRef.current = hit;
         return;
       }
+      if (modeRef.current === "draw" && toolRef.current === "eraser") {
+        // Topmost (last-drawn) stroke wins when strokes overlap.
+        for (let i = strokesRef.current.length - 1; i >= 0; i--) {
+          const s = strokesRef.current[i];
+          if (pointInPolygon([x, y], s.outline)) {
+            onEraseStrokeRef.current(s.id);
+            break;
+          }
+        }
+        return;
+      }
       if (modeRef.current === "select") {
         // Topmost (last-drawn) stroke wins when strokes overlap.
         for (let i = strokesRef.current.length - 1; i >= 0; i--) {
@@ -253,10 +273,13 @@ export default function GridCell({
       }
       // Idle hover: show a resize cursor near a bearing line so it reads as
       // draggable before the user commits to a pointerdown; in select mode,
-      // show a pointer cursor over a selectable stroke.
+      // show a pointer cursor over a selectable stroke; with the eraser tool,
+      // a crosshair over the whole cell (matches the Write-mode canvas).
       const [x, y] = pointFromEvent(e);
       if (bearingNear(x, canvas!.clientWidth)) {
         canvas!.style.cursor = "ew-resize";
+      } else if (modeRef.current === "draw" && toolRef.current === "eraser") {
+        canvas!.style.cursor = "crosshair";
       } else if (modeRef.current === "select" && strokesRef.current.some((s) => pointInPolygon([x, y], s.outline))) {
         canvas!.style.cursor = "pointer";
       } else {
