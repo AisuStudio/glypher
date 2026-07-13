@@ -19,7 +19,7 @@ import GridCell, { DEFAULT_LEFT_BEARING, DEFAULT_RIGHT_BEARING } from "./GridCel
 import BetaBadge from "./BetaBadge";
 import { CHARACTER_SETS, DEFAULT_CHARACTER_SET_IDS } from "@/lib/charsets";
 import AnimatePanel from "./AnimatePanel";
-import EditorPanel from "./EditorPanel";
+import EditorPanel, { DEFAULT_EDITOR_FONT_SIZE_PT } from "./EditorPanel";
 import { DEFAULT_PRESET_ID, type AnimationPresetId } from "@/lib/animationPresets";
 
 // Draw has three styles: Free (the old "Write" freeform canvas), Grid (one
@@ -180,6 +180,16 @@ export default function Home() {
   function updateEditorText(text: string) {
     setEditorText(text);
     window.localStorage.setItem("glypher.editorText.v1", text);
+  }
+
+  const [editorFontSize, setEditorFontSize] = useState(() => {
+    if (typeof window === "undefined") return DEFAULT_EDITOR_FONT_SIZE_PT;
+    return Number(window.localStorage.getItem("glypher.editorFontSize.v1")) || DEFAULT_EDITOR_FONT_SIZE_PT;
+  });
+
+  function updateEditorFontSize(pt: number) {
+    setEditorFontSize(pt);
+    window.localStorage.setItem("glypher.editorFontSize.v1", String(pt));
   }
 
   function toggleCharacterSet(id: string) {
@@ -1316,6 +1326,8 @@ export default function Home() {
           settings={settings}
           text={editorText}
           onTextChange={updateEditorText}
+          fontSize={editorFontSize}
+          onFontSizeChange={updateEditorFontSize}
         />
       )}
 

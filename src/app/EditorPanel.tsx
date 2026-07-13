@@ -17,10 +17,23 @@ type Props = {
   settings: StrokeSettings;
   text: string;
   onTextChange: (text: string) => void;
+  fontSize: number;
+  onFontSizeChange: (pt: number) => void;
 };
 
 const INK_COLOR = "#1f1934"; // blueberry, same as untagged/default ink everywhere else
 const LINE_GAP = 24; // breathing room between stacked lines, beyond each line's own ascender/descender
+// bbox-fallback glyphs (Write-tagged, no Grid calibration) can reach up to
+// 40px above y=0 by construction (layoutText.ts's TARGET_CAP_HEIGHT=140 minus
+// its BASELINE_Y=100) — without this, the very first line's ascenders get
+// clipped by the canvas's own top edge, since every later line is already
+// protected by the previous line's height+gap but the first has nothing
+// above it.
+const TOP_PADDING = 48;
+
+export const DEFAULT_EDITOR_FONT_SIZE_PT = 105; // keeps layoutText's built-in 140px cap-height as the out-of-the-box look
+const PT_TO_PX = 96 / 72; // standard CSS/print conversion at 96dpi
+const REFERENCE_CAP_HEIGHT_PX = 140; // layoutText.ts's internal TARGET_CAP_HEIGHT — the size every glyph is already normalized to before this final size scale is applied
 
 // Small local duplicates of page.tsx's canvas helpers (applyPath/fillOutline/
 // outlineFor) — same duplication convention already used between page.tsx
@@ -56,8 +69,18 @@ function fillOutline(ctx: CanvasRenderingContext2D, outline: [number, number][])
   ctx.fill();
 }
 
-export default function EditorPanel({ glyphs, strokes, metrics, settings, text, onTextChange }: Props) {
+export default function EditorPanel({
+  glyphs,
+  strokes,
+  metrics,
+  settings,
+  text,
+  onTextChange,
+  fontSize,
+  onFontSizeChange,
+}: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const sizeFactor = (fontSize * PT_TO_PX) / REFERENCE_CAP_HEIGHT_PX;
 
   // Phase 1 (per the plan): read-only composition/preview — type using
   // already-tagged glyphs, no direct drawing/erasing/reshaping here yet.
@@ -84,7 +107,7 @@ export default function EditorPanel({ glyphs, strokes, metrics, settings, text, 
       ctx!.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx!.clearRect(0, 0, rect.width, rect.height);
 
-      let lineY = 0;
+      let lineY = TOP_PADDING;
       for (const line of text.split("\n")) {
         const layout = layoutText(line, glyphs, strokes, metrics);
         for (const entry of layout.entries) {
@@ -93,13 +116,16 @@ export default function EditorPanel({ glyphs, strokes, metrics, settings, text, 
             // Each glyph's raw pen points, transformed by layoutText's own
             // per-glyph offset/scale (the same Grid-bearing-aware or
             // bbox-fallback calibration Animate mode already uses) plus
-            // this line's running Y offset — pressure carried straight
+            // this line's running Y offset, then uniformly rescaled by the
+            // user's chosen point size — applied last so it grows/shrinks
+            // glyph size AND inter-glyph/inter-line spacing together, not
+            // just the letterforms in place. Pressure carried straight
             // through untouched, so the composed text still renders with
             // real perfect-freehand thickness variation, not a flattened
             // skeleton.
             const transformed: StrokePoint[] = strokePoints.map((p) => [
-              p[0] * entry.scale + entry.offsetX,
-              p[1] * entry.scale + entry.offsetY + lineY,
+              (p[0] * entry.scale + entry.offsetX) * sizeFactor,
+              (p[1] * entry.scale + entry.offsetY + lineY) * sizeFactor,
               p[2],
             ]);
             fillOutline(ctx!, outlineFor(transformed, settings));
@@ -113,10 +139,24 @@ export default function EditorPanel({ glyphs, strokes, metrics, settings, text, 
     const resizeObserver = new ResizeObserver(draw);
     resizeObserver.observe(canvas);
     return () => resizeObserver.disconnect();
-  }, [text, glyphs, strokes, metrics, settings]);
+  }, [text, glyphs, strokes, metrics, settings, sizeFactor]);
 
   return (
     <div className={styles.editorPanel}>
+      <div className={styles.toolbar}>
+        <label className={styles.sliderRow}>
+          <span>Size</span>
+          <input
+            type="range"
+            min={12}
+            max={300}
+            step={1}
+            value={fontSize}
+            onChange={(e) => onFontSizeChange(Number(e.target.value))}
+          />
+          <span className={styles.val}>{fontSize}pt</span>
+        </label>
+      </div>
       <textarea
         className={styles.editorInput}
         value={text}
