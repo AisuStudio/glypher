@@ -32,17 +32,19 @@ export function buildAnimationSvg(layout: TextLayout, presetId: AnimationPresetI
       })
       .join("");
 
-    const style = preset.glyphStyle?.({ index }) ?? "";
     // Layout position lives on a plain SVG transform ATTRIBUTE on the outer
     // <g>; the preset's CSS only ever touches the inner .ls-glyph group. This
     // split matters — a CSS `transform` (even one only ever applied via an
     // @keyframes animation) overrides an element's `transform` presentation
     // attribute entirely, so animating the same group that carries the
     // layout translate/scale would silently discard the glyph's position the
-    // moment the animation kicks in.
+    // moment the animation kicks in. `--ls-i` is the glyph's left-to-right
+    // index as an inherited custom property — presets read it (via
+    // `calc(var(--ls-i) * ...)`) to stagger either .ls-glyph or its
+    // .ls-stroke children, whichever the effect actually animates.
     return (
       `<g transform="translate(${round(entry.offsetX)} ${round(entry.offsetY)}) scale(${round(entry.scale)})">` +
-      `<g class="ls-glyph" data-char="${escapeXml(entry.glyph.name)}" style="${style}">${paths}</g>` +
+      `<g class="ls-glyph" data-char="${escapeXml(entry.glyph.name)}" style="--ls-i:${index}">${paths}</g>` +
       `</g>`
     );
   });
