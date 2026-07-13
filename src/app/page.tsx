@@ -992,7 +992,7 @@ export default function Home() {
               onClick={() => setSelectedIds([])}
               disabled={selectedIds.length === 0}
             >
-              Clear selection
+              Deselect
             </button>
           </div>
         )}
