@@ -11,6 +11,8 @@ import { downloadFont } from "@/lib/exportFont";
 import { downloadSkeletonSvg } from "@/lib/exportSkeleton";
 import { saveFile } from "@/lib/saveFile";
 import { loadMetrics, saveMetrics, type Metrics } from "@/lib/metrics";
+import { loadSettings, saveSettings, type StrokeSettings } from "@/lib/settings";
+import { downloadProjectFile, parseProjectFile, applyProjectFile } from "@/lib/projectFile";
 import { Undo2, Redo2, PenTool, SquareDashed, Eraser, LineSquiggle, Grid3x3, BookA, Sparkle, Download } from "lucide-react";
 import GridCell, { DEFAULT_LEFT_BEARING, DEFAULT_RIGHT_BEARING } from "./GridCell";
 import BetaBadge from "./BetaBadge";
@@ -23,24 +25,7 @@ import { DEFAULT_PRESET_ID, type AnimationPresetId } from "@/lib/animationPreset
 // stroke to its glyph the moment it's drawn, so there's nothing to assign.
 type TopMode = "draw" | "assign" | "animate" | "export";
 type DrawStyle = "free" | "grid";
-type StrokeMode = "mono" | "dynamic";
 type DrawTool = "pen" | "eraser";
-
-type StrokeSettings = {
-  mode: StrokeMode;
-  size: number;
-  thinning: number;
-  smoothing: number;
-  streamline: number;
-};
-
-const DEFAULT_SETTINGS: StrokeSettings = {
-  mode: "dynamic",
-  size: 20,
-  thinning: 0.7,
-  smoothing: 0.5,
-  streamline: 0.5,
-};
 
 const COLOR_DEFAULT = "#1f1934"; // blueberry — untagged
 const COLOR_SELECTED = "#d8ff01"; // lemon — pending selection
@@ -147,6 +132,7 @@ function strokeLassoPath(ctx: CanvasRenderingContext2D, points: [number, number]
 
 export default function Home() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const gffInputRef = useRef<HTMLInputElement | null>(null);
   const drawingRef = useRef(false);
 
   // Completed strokes + their cached outlines (recomputed only when a stroke is added
@@ -198,7 +184,7 @@ export default function Home() {
   const [drawTool, setDrawTool] = useState<DrawTool>("pen");
   const drawToolRef = useRef(drawTool);
 
-  const [settings, setSettings] = useState<StrokeSettings>(DEFAULT_SETTINGS);
+  const [settings, setSettings] = useState<StrokeSettings>(() => loadSettings());
   const settingsRef = useRef(settings);
 
   // Lazy initializer, not useEffect + setGlyphs([]) then load: starting from an empty
@@ -359,6 +345,7 @@ export default function Home() {
   // settings change — not just strokes drawn from now on.
   useEffect(() => {
     settingsRef.current = settings;
+    saveSettings(settings);
     outlinesRef.current = completedRef.current.map((s) => outlineFor(s.points, settings));
     redrawRef.current();
   }, [settings]);
@@ -585,6 +572,28 @@ export default function Home() {
 
   function handleExportSkeleton() {
     downloadSkeletonSvg(glyphs, completedRef.current);
+  }
+
+  function handleDownloadGff() {
+    downloadProjectFile(glyphs, completedRef.current, metrics, settings, "untitled.gff");
+  }
+
+  function handleImportGffClick() {
+    gffInputRef.current?.click();
+  }
+
+  function handleImportGffChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-selecting the same file next time
+    if (!file) return;
+    file.text().then((text) => {
+      try {
+        applyProjectFile(parseProjectFile(text));
+        window.location.reload();
+      } catch (err) {
+        alert(err instanceof Error ? err.message : "Could not read this file.");
+      }
+    });
   }
 
   return (
@@ -1031,6 +1040,19 @@ export default function Home() {
             >
               Export Skeleton SVG
             </button>
+            <button type="button" className={styles.clearBtn} onClick={handleDownloadGff}>
+              Download GFF
+            </button>
+            <button type="button" className={styles.clearBtn} onClick={handleImportGffClick}>
+              Import GFF
+            </button>
+            <input
+              ref={gffInputRef}
+              type="file"
+              accept=".gff,application/json"
+              onChange={handleImportGffChange}
+              style={{ display: "none" }}
+            />
           </div>
         )}
       </div>
