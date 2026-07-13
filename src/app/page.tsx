@@ -11,15 +11,18 @@ import { downloadFont } from "@/lib/exportFont";
 import { downloadSkeletonSvg } from "@/lib/exportSkeleton";
 import { saveFile } from "@/lib/saveFile";
 import { loadMetrics, saveMetrics, type Metrics } from "@/lib/metrics";
-import { Undo2, Redo2, PenTool, SquareDashed, Eraser } from "lucide-react";
+import { Undo2, Redo2, PenTool, SquareDashed, Eraser, LineSquiggle, Grid3x3, BookA, Sparkle, Download } from "lucide-react";
 import GridCell, { DEFAULT_LEFT_BEARING, DEFAULT_RIGHT_BEARING } from "./GridCell";
 import BetaBadge from "./BetaBadge";
 import { CHARACTER_SETS, DEFAULT_CHARACTER_SET_IDS } from "@/lib/charsets";
 import AnimatePanel from "./AnimatePanel";
 import { DEFAULT_PRESET_ID, type AnimationPresetId } from "@/lib/animationPresets";
 
-type TopMode = "write" | "grid" | "animate";
-type ViewMode = "draw" | "review" | "export";
+// Draw has two styles (Free = the old "Write" freeform canvas, Grid = one
+// glyph per cell); Assign only ever applies to Free — Grid already tags a
+// stroke to its glyph the moment it's drawn, so there's nothing to assign.
+type TopMode = "draw" | "assign" | "animate" | "export";
+type DrawStyle = "free" | "grid";
 type StrokeMode = "mono" | "dynamic";
 type DrawTool = "pen" | "eraser";
 
@@ -157,7 +160,8 @@ export default function Home() {
   const undoRef = useRef<() => void>(() => {});
   const redoRef = useRef<() => void>(() => {});
 
-  const [topMode, setTopMode] = useState<TopMode>("write");
+  const [topMode, setTopMode] = useState<TopMode>("draw");
+  const [drawStyle, setDrawStyle] = useState<DrawStyle>("free");
   const [activeSetIds, setActiveSetIds] = useState<Set<string>>(new Set(DEFAULT_CHARACTER_SET_IDS));
   const gridChars = CHARACTER_SETS.filter((s) => activeSetIds.has(s.id)).flatMap((s) => s.chars);
   const [metrics, setMetrics] = useState<Metrics>(() => loadMetrics());
@@ -188,10 +192,8 @@ export default function Home() {
     });
   }
 
-  const [viewMode, setViewMode] = useState<ViewMode>("draw");
-  const viewModeRef = useRef(viewMode);
-  const showStrokeControls =
-    (topMode === "write" && viewMode === "draw") || (topMode === "grid" && viewMode !== "export");
+  const topModeRef = useRef(topMode);
+  const showStrokeControls = topMode === "draw";
 
   const [drawTool, setDrawTool] = useState<DrawTool>("pen");
   const drawToolRef = useRef(drawTool);
@@ -207,11 +209,6 @@ export default function Home() {
 
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const selectedIdsRef = useRef<Set<string>>(new Set());
-  const selectedIdsSet = new Set(selectedIds);
-
-  function handleToggleSelect(id: string) {
-    setSelectedIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]));
-  }
 
   const [animateText, setAnimateText] = useState("");
   const [animatePresetId, setAnimatePresetId] = useState<AnimationPresetId>(DEFAULT_PRESET_ID);
@@ -247,10 +244,10 @@ export default function Home() {
             : COLOR_DEFAULT;
         fillOutline(ctx, outlines[i], color);
       }
-      if (viewModeRef.current === "draw" && currentPointsRef.current.length > 0) {
+      if (topModeRef.current === "draw" && currentPointsRef.current.length > 0) {
         fillOutline(ctx, outlineFor(currentPointsRef.current, settingsRef.current), COLOR_DEFAULT);
       }
-      if (viewModeRef.current === "review" && lassoRef.current.length > 1) {
+      if (topModeRef.current === "assign" && lassoRef.current.length > 1) {
         strokeLassoPath(ctx, lassoRef.current);
       }
     }
@@ -285,13 +282,13 @@ export default function Home() {
       canvas!.setPointerCapture(e.pointerId);
       const p = pointFromEvent(e);
       setHud({ pointerType: e.pointerType, pressure: e.pressure, x: Math.round(p[0]), y: Math.round(p[1]) });
-      if (viewModeRef.current === "draw" && drawToolRef.current === "eraser") {
+      if (topModeRef.current === "draw" && drawToolRef.current === "eraser") {
         eraseAt(p[0], p[1]);
         redraw();
         return;
       }
       drawingRef.current = true;
-      if (viewModeRef.current === "draw") {
+      if (topModeRef.current === "draw") {
         currentPointsRef.current = [p];
       } else {
         lassoRef.current = [[p[0], p[1]]];
@@ -301,13 +298,13 @@ export default function Home() {
     function onPointerMove(e: PointerEvent) {
       const p = pointFromEvent(e);
       setHud({ pointerType: e.pointerType, pressure: e.pressure, x: Math.round(p[0]), y: Math.round(p[1]) });
-      if (viewModeRef.current === "draw" && drawToolRef.current === "eraser") {
+      if (topModeRef.current === "draw" && drawToolRef.current === "eraser") {
         canvas!.style.cursor = "crosshair";
         return;
       }
       canvas!.style.cursor = "";
       if (!drawingRef.current) return;
-      if (viewModeRef.current === "draw") {
+      if (topModeRef.current === "draw") {
         currentPointsRef.current.push(p);
       } else {
         lassoRef.current.push([p[0], p[1]]);
@@ -316,7 +313,7 @@ export default function Home() {
     }
 
     function onPointerUp(e: PointerEvent) {
-      if (viewModeRef.current === "draw") {
+      if (topModeRef.current === "draw") {
         if (drawingRef.current && currentPointsRef.current.length > 1) {
           const stroke: Stroke = {
             id: `${Date.now()}-${Math.round(Math.random() * 1e6)}`,
@@ -367,12 +364,12 @@ export default function Home() {
   }, [settings]);
 
   useEffect(() => {
-    viewModeRef.current = viewMode;
+    topModeRef.current = topMode;
     currentPointsRef.current = [];
     lassoRef.current = [];
     setSelectedIds([]);
     redrawRef.current();
-  }, [viewMode]);
+  }, [topMode]);
 
   useEffect(() => {
     drawToolRef.current = drawTool;
@@ -390,16 +387,16 @@ export default function Home() {
   }, [glyphs]);
 
   useEffect(() => {
-    if (viewMode !== "export") return;
+    if (topMode !== "export") return;
     const doc = compileDocument(glyphs, completedRef.current, settings, metrics);
     setExportJson(JSON.stringify(doc, null, 2));
     setExportDoc(doc);
-  }, [viewMode, glyphs, settings, metrics]);
+  }, [topMode, glyphs, settings, metrics]);
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "z") return;
-      if (viewModeRef.current !== "draw") return;
+      if (topModeRef.current !== "draw") return;
       e.preventDefault();
       if (e.shiftKey) redoRef.current();
       else undoRef.current();
@@ -584,73 +581,86 @@ export default function Home() {
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/GL_Logo.svg" alt="letter.space" className={styles.logo} />
 
-        <div className={styles.modeToggle} role="radiogroup" aria-label="Top mode">
+        <div className={styles.modeToggle} role="radiogroup" aria-label="Mode">
           <button
             type="button"
             role="radio"
-            aria-checked={topMode === "write"}
-            className={`${styles.modeBtn} ${styles.iconOnlyBtn} ${topMode === "write" ? styles.modeBtnActive : ""}`}
-            onClick={() => setTopMode("write")}
-            aria-label="Write"
+            aria-checked={topMode === "draw"}
+            className={`${styles.modeBtn} ${styles.iconOnlyBtn} ${topMode === "draw" ? styles.modeBtnActive : ""}`}
+            onClick={() => setTopMode("draw")}
+            aria-label="Draw"
           >
             <PenTool size={16} strokeWidth={2} />
           </button>
-          <button
-            type="button"
-            role="radio"
-            aria-checked={topMode === "grid"}
-            className={`${styles.modeBtn} ${topMode === "grid" ? styles.modeBtnActive : ""}`}
-            onClick={() => setTopMode("grid")}
-          >
-            Grid
-          </button>
+          {drawStyle === "free" && (
+            <button
+              type="button"
+              role="radio"
+              aria-checked={topMode === "assign"}
+              className={`${styles.modeBtn} ${styles.iconOnlyBtn} ${topMode === "assign" ? styles.modeBtnActive : ""}`}
+              onClick={() => setTopMode("assign")}
+              aria-label="Assign"
+            >
+              <BookA size={16} strokeWidth={2} />
+            </button>
+          )}
           <button
             type="button"
             role="radio"
             aria-checked={topMode === "animate"}
-            className={`${styles.modeBtn} ${topMode === "animate" ? styles.modeBtnActive : ""}`}
-            onClick={() => {
-              setTopMode("animate");
-              // Animate has no Draw/Select/Export sub-states of its own — its
-              // export action lives inside AnimatePanel. Resetting here keeps
-              // a stale "export"/"review" viewMode from also rendering the
-              // Write/Grid export panel or tag form underneath AnimatePanel.
-              setViewMode("draw");
-            }}
+            className={`${styles.modeBtn} ${styles.iconOnlyBtn} ${topMode === "animate" ? styles.modeBtnActive : ""}`}
+            onClick={() => setTopMode("animate")}
+            aria-label="Animate"
           >
-            Animate
+            <Sparkle size={16} strokeWidth={2} />
+          </button>
+          <button
+            type="button"
+            role="radio"
+            aria-checked={topMode === "export"}
+            className={`${styles.modeBtn} ${styles.iconOnlyBtn} ${topMode === "export" ? styles.modeBtnActive : ""}`}
+            onClick={() => setTopMode("export")}
+            aria-label="Export"
+          >
+            <Download size={16} strokeWidth={2} />
           </button>
         </div>
 
-        {topMode !== "animate" && (
-          <div className={styles.modeToggle} role="radiogroup" aria-label="View mode">
+        {topMode === "draw" && (
+          <div className={styles.modeToggle} role="radiogroup" aria-label="Draw style">
             <button
               type="button"
               role="radio"
-              aria-checked={viewMode === "draw"}
-              className={`${styles.modeBtn} ${viewMode === "draw" ? styles.modeBtnActive : ""}`}
-              onClick={() => setViewMode("draw")}
+              aria-checked={drawStyle === "free"}
+              className={`${styles.modeBtn} ${styles.iconOnlyBtn} ${drawStyle === "free" ? styles.modeBtnActive : ""}`}
+              onClick={() => setDrawStyle("free")}
+              aria-label="Free"
             >
-              Draw
+              <LineSquiggle size={16} strokeWidth={2} />
             </button>
             <button
               type="button"
               role="radio"
-              aria-checked={viewMode === "review"}
-              className={`${styles.modeBtn} ${styles.iconOnlyBtn} ${viewMode === "review" ? styles.modeBtnActive : ""}`}
-              onClick={() => setViewMode("review")}
-              aria-label="Assign"
+              aria-checked={drawStyle === "grid"}
+              className={`${styles.modeBtn} ${styles.iconOnlyBtn} ${drawStyle === "grid" ? styles.modeBtnActive : ""}`}
+              onClick={() => setDrawStyle("grid")}
+              aria-label="Grid"
+            >
+              <Grid3x3 size={16} strokeWidth={2} />
+            </button>
+          </div>
+        )}
+
+        {topMode === "assign" && (
+          <div className={styles.modeToggle} role="radiogroup" aria-label="Assign method">
+            <button
+              type="button"
+              role="radio"
+              aria-checked={true}
+              className={`${styles.modeBtn} ${styles.iconOnlyBtn} ${styles.modeBtnActive}`}
+              aria-label="Select"
             >
               <SquareDashed size={16} strokeWidth={2} />
-            </button>
-            <button
-              type="button"
-              role="radio"
-              aria-checked={viewMode === "export"}
-              className={`${styles.modeBtn} ${viewMode === "export" ? styles.modeBtnActive : ""}`}
-              onClick={() => setViewMode("export")}
-            >
-              Export
             </button>
           </div>
         )}
@@ -684,7 +694,7 @@ export default function Home() {
       <div className={styles.labBanner}>LabMode, more coming soon!</div>
 
       <div className={styles.toolbar}>
-        {topMode === "grid" && viewMode !== "export" && (
+        {topMode === "draw" && drawStyle === "grid" && (
           <div className={styles.charsetToggle}>
             {CHARACTER_SETS.map((set) => (
               <label key={set.id} className={styles.charsetOption}>
@@ -699,7 +709,7 @@ export default function Home() {
           </div>
         )}
 
-        {topMode === "grid" && viewMode !== "export" && (
+        {topMode === "draw" && drawStyle === "grid" && (
           <div className={styles.sliders}>
             <label className={styles.sliderRow}>
               <span>Cell size</span>
@@ -774,7 +784,7 @@ export default function Home() {
           </div>
         )}
 
-        {viewMode === "draw" && topMode !== "animate" && (
+        {topMode === "draw" && (
           <div className={styles.modeToggle} role="radiogroup" aria-label="Draw tool">
             <button
               type="button"
@@ -880,82 +890,78 @@ export default function Home() {
           </>
         )}
 
-        {viewMode === "review" && (
+        {topMode === "assign" && (
           <div className={styles.tagForm}>
-            {topMode === "write" && (
-              <>
-                <div className={styles.modeToggle} role="radiogroup" aria-label="Glyph kind">
-                  <button
-                    type="button"
-                    role="radio"
-                    aria-checked={kindInput === "base"}
-                    className={`${styles.modeBtn} ${kindInput === "base" ? styles.modeBtnActive : ""}`}
-                    onClick={() => setKindInput("base")}
-                  >
-                    Base
-                  </button>
-                  <button
-                    type="button"
-                    role="radio"
-                    aria-checked={kindInput === "ligature"}
-                    className={`${styles.modeBtn} ${kindInput === "ligature" ? styles.modeBtnActive : ""}`}
-                    onClick={() => setKindInput("ligature")}
-                  >
-                    Ligature
-                  </button>
-                  <button
-                    type="button"
-                    role="radio"
-                    aria-checked={kindInput === "alternate"}
-                    className={`${styles.modeBtn} ${kindInput === "alternate" ? styles.modeBtnActive : ""}`}
-                    onClick={() => setKindInput("alternate")}
-                  >
-                    Alternate
-                  </button>
-                </div>
+            <div className={styles.modeToggle} role="radiogroup" aria-label="Glyph kind">
+              <button
+                type="button"
+                role="radio"
+                aria-checked={kindInput === "base"}
+                className={`${styles.modeBtn} ${kindInput === "base" ? styles.modeBtnActive : ""}`}
+                onClick={() => setKindInput("base")}
+              >
+                Base
+              </button>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={kindInput === "ligature"}
+                className={`${styles.modeBtn} ${kindInput === "ligature" ? styles.modeBtnActive : ""}`}
+                onClick={() => setKindInput("ligature")}
+              >
+                Ligature
+              </button>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={kindInput === "alternate"}
+                className={`${styles.modeBtn} ${kindInput === "alternate" ? styles.modeBtnActive : ""}`}
+                onClick={() => setKindInput("alternate")}
+              >
+                Alternate
+              </button>
+            </div>
 
-                <input
-                  type="text"
-                  className={styles.nameInput}
-                  placeholder={
-                    kindInput === "base" ? "character (e.g. a, é)" : kindInput === "ligature" ? "name (e.g. f_i.liga)" : "name (e.g. a.alt01)"
-                  }
-                  value={nameInput}
-                  onChange={(e) => setNameInput(e.target.value)}
-                />
+            <input
+              type="text"
+              className={styles.nameInput}
+              placeholder={
+                kindInput === "base" ? "character (e.g. a, é)" : kindInput === "ligature" ? "name (e.g. f_i.liga)" : "name (e.g. a.alt01)"
+              }
+              value={nameInput}
+              onChange={(e) => setNameInput(e.target.value)}
+            />
 
-                {kindInput === "base" && nameInput.trim() && (
-                  <span className={styles.unicodeHint}>{unicodeFor(nameInput.trim()) ?? "not a single character"}</span>
-                )}
-                {kindInput === "ligature" && (
-                  <input
-                    type="text"
-                    className={styles.nameInput}
-                    placeholder="components (e.g. f, i)"
-                    value={componentsInput}
-                    onChange={(e) => setComponentsInput(e.target.value)}
-                  />
-                )}
-                {kindInput === "alternate" && (
-                  <input
-                    type="text"
-                    className={styles.nameInput}
-                    placeholder="alternate of (e.g. a)"
-                    value={alternateOfInput}
-                    onChange={(e) => setAlternateOfInput(e.target.value)}
-                  />
-                )}
-
-                <button
-                  type="button"
-                  className={styles.clearBtn}
-                  onClick={handleAssign}
-                  disabled={!nameInput.trim() || selectedIds.length === 0}
-                >
-                  Assign ({selectedIds.length})
-                </button>
-              </>
+            {kindInput === "base" && nameInput.trim() && (
+              <span className={styles.unicodeHint}>{unicodeFor(nameInput.trim()) ?? "not a single character"}</span>
             )}
+            {kindInput === "ligature" && (
+              <input
+                type="text"
+                className={styles.nameInput}
+                placeholder="components (e.g. f, i)"
+                value={componentsInput}
+                onChange={(e) => setComponentsInput(e.target.value)}
+              />
+            )}
+            {kindInput === "alternate" && (
+              <input
+                type="text"
+                className={styles.nameInput}
+                placeholder="alternate of (e.g. a)"
+                value={alternateOfInput}
+                onChange={(e) => setAlternateOfInput(e.target.value)}
+              />
+            )}
+
+            <button
+              type="button"
+              className={styles.clearBtn}
+              onClick={handleAssign}
+              disabled={!nameInput.trim() || selectedIds.length === 0}
+            >
+              Assign ({selectedIds.length})
+            </button>
             <button
               type="button"
               className={styles.clearBtn}
@@ -967,7 +973,7 @@ export default function Home() {
           </div>
         )}
 
-        {viewMode === "export" && (
+        {topMode === "export" && (
           <div className={styles.tagForm}>
             <button type="button" className={styles.clearBtn} onClick={handleDownloadJson}>
               Download JSON
@@ -992,13 +998,13 @@ export default function Home() {
         )}
       </div>
 
-      {viewMode === "export" && (
+      {topMode === "export" && (
         <section className={styles.exportPanel}>
           <textarea className={styles.exportOutput} readOnly rows={20} value={exportJson} />
         </section>
       )}
 
-      {topMode === "write" && viewMode === "review" && glyphs.length > 0 && (
+      {topMode === "assign" && glyphs.length > 0 && (
         <ul className={styles.glyphList}>
           {glyphs.map((g) => (
             <li key={g.id} className={styles.glyphItem}>
@@ -1019,7 +1025,7 @@ export default function Home() {
 
       <div
         className={styles.canvasWrap}
-        style={topMode !== "write" || viewMode === "export" ? { display: "none" } : undefined}
+        style={!((topMode === "draw" && drawStyle === "free") || topMode === "assign") ? { display: "none" } : undefined}
       >
         <canvas ref={canvasRef} className={styles.canvas} />
         <dl className={styles.hud}>
@@ -1034,7 +1040,7 @@ export default function Home() {
         </dl>
       </div>
 
-      {topMode === "grid" && viewMode !== "export" && (
+      {topMode === "draw" && drawStyle === "grid" && (
         <div
           className={styles.grid}
           style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${cellSize}px, 1fr))` }}
@@ -1052,10 +1058,7 @@ export default function Home() {
                 key={letter}
                 label={letter}
                 strokes={cellStrokes}
-                mode={viewMode === "review" ? "select" : "draw"}
                 tool={drawTool}
-                selectedIds={selectedIdsSet}
-                onToggleSelect={handleToggleSelect}
                 onEraseStroke={(id) => deleteStrokes(new Set([id]))}
                 strokeOptions={optionsFor(settings)}
                 onStrokeComplete={(stroke, cellWidth, cellHeight) =>
