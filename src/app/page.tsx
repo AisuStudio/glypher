@@ -295,11 +295,16 @@ export default function Home() {
   const [topMode, setTopMode] = useState<TopMode>("draw");
   const [drawStyle, setDrawStyle] = useState<DrawStyle>("free");
 
-  // Menu bar dropdown (File/Edit/View/Tools) + the context bar's settings
-  // flyout — both dismissed by the same outside-click listener below, so
-  // they share one open/close shape rather than four separate booleans.
-  const [openMenu, setOpenMenu] = useState<"file" | "edit" | "view" | "tools" | null>(null);
+  // Menu bar dropdown (Glypher/File/Edit/View/Tools) + the context bar's
+  // settings flyout — both dismissed by the same outside-click listener
+  // below, so they share one open/close shape rather than five separate
+  // booleans.
+  const [openMenu, setOpenMenu] = useState<"glypher" | "file" | "edit" | "view" | "tools" | null>(null);
   const [gearOpen, setGearOpen] = useState(false);
+  // Info/How-to modal, opened from the Glypher menu — a plain overlay
+  // rather than another dropdown, since this content is paragraph-length,
+  // not a short action list.
+  const [infoModal, setInfoModal] = useState<"info" | "howto" | null>(null);
   const [activeSetIds, setActiveSetIds] = useState<Set<string>>(new Set(DEFAULT_CHARACTER_SET_IDS));
   const gridChars = CHARACTER_SETS.filter((s) => activeSetIds.has(s.id)).flatMap((s) => s.chars);
   const [metrics, setMetrics] = useState<Metrics>(() => loadMetrics());
@@ -826,6 +831,17 @@ export default function Home() {
     return () => window.removeEventListener("pointerdown", onPointerDownOutside);
   }, [openMenu, gearOpen]);
 
+  // Escape closes the Info/How-to modal — the backdrop click already
+  // handles pointer dismissal, this covers keyboard users.
+  useEffect(() => {
+    if (!infoModal) return;
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") setInfoModal(null);
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [infoModal]);
+
   function handleUndo() {
     if (completedRef.current.length === 0) return;
     const last = completedRef.current[completedRef.current.length - 1];
@@ -1158,7 +1174,37 @@ export default function Home() {
       <BetaBadge />
 
       <div className={styles.menuBar} data-chrome-menu>
-        <span className={styles.appName}>Glypher</span>
+        <div className={styles.menuItem}>
+          <button
+            type="button"
+            className={`${styles.menuTrigger} ${styles.appName}`}
+            aria-haspopup="menu"
+            aria-expanded={openMenu === "glypher"}
+            onClick={() => setOpenMenu((m) => (m === "glypher" ? null : "glypher"))}
+          >
+            Glypher
+          </button>
+          {openMenu === "glypher" && (
+            <div className={styles.dropdown} role="menu">
+              <button
+                type="button"
+                role="menuitem"
+                className={styles.dropdownItem}
+                onClick={() => { setInfoModal("info"); setOpenMenu(null); }}
+              >
+                Info
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className={styles.dropdownItem}
+                onClick={() => { setInfoModal("howto"); setOpenMenu(null); }}
+              >
+                How to
+              </button>
+            </div>
+          )}
+        </div>
 
         <div className={styles.menuItem}>
           <button
@@ -1758,6 +1804,34 @@ export default function Home() {
       )}
         </main>
       </div>
+
+      {infoModal && (
+        <div className={styles.modalBackdrop} onClick={() => setInfoModal(null)}>
+          <div className={styles.modalCard} role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <span>{infoModal === "info" ? "Info" : "How to"}</span>
+              <button type="button" className={styles.modalClose} onClick={() => setInfoModal(null)} aria-label="Close">
+                ×
+              </button>
+            </div>
+            {infoModal === "info" ? (
+              <p className={styles.modalBody}>
+                Glypher turns your own handwriting into a usable font. Draw letters freehand or in the letter grid,
+                tag strokes to characters, then export as OTF, JSON, or a skeleton SVG — or save your work as a
+                .gff project file to keep editing later.
+              </p>
+            ) : (
+              <ol className={styles.modalList}>
+                <li><strong>Draw</strong> — sketch in Free (anywhere) or Grid (one cell per letter, auto-tagged).</li>
+                <li><strong>Select + Assign</strong> — lasso strokes in Free, then Assign them to a character.</li>
+                <li><strong>Refine</strong> — Nudge reshapes one stroke; Move/Rotate/Scale act on a selection (select first).</li>
+                <li><strong>Preview</strong> — compose text in Editor, or animate it in Anim.</li>
+                <li><strong>Export</strong> — File menu: OTF / JSON / Skeleton SVG, or GFF to save the whole project.</li>
+              </ol>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -681,3 +681,71 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+.modalBackdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(31, 25, 52, 0.35); /* blueberry, translucent */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 30;
+}
+
+.modalCard {
+  width: 420px;
+  max-width: calc(100vw - var(--sp-xl));
+  max-height: calc(100vh - var(--sp-xl));
+  overflow: auto;
+  background: var(--color-vanilla);
+  border: 1px solid var(--color-cappuccino);
+  border-radius: 6px;
+  box-shadow: 2px 4px 16px rgba(31, 25, 52, 0.25);
+  padding: var(--sp-lg);
+}
+
+.modalHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: var(--sp-md);
+}
+
+.modalClose {
+  font-size: 18px;
+  line-height: 1;
+  background: none;
+  border: 0;
+  color: var(--color-text);
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+.modalClose:hover {
+  color: var(--color-grape);
+}
+
+.modalBody {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--color-text);
+  margin: 0;
+}
+
+.modalList {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--color-text);
+  margin: 0;
+  padding-left: 1.2em;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-sm);
+}
