@@ -30,7 +30,6 @@ import {
   RotateCw,
   Scaling,
   Hand,
-  SlidersHorizontal,
   ChevronDown,
 } from "lucide-react";
 import GridCell, { DEFAULT_LEFT_BEARING, DEFAULT_RIGHT_BEARING, type CellTool } from "./GridCell";
@@ -301,12 +300,9 @@ export default function Home() {
   const [topMode, setTopMode] = useState<TopMode>("draw");
   const [drawStyle, setDrawStyle] = useState<DrawStyle>("free");
 
-  // Menu bar dropdown (Glypher/File/Edit/View/Tools) + the context bar's
-  // settings flyout — both dismissed by the same outside-click listener
-  // below, so they share one open/close shape rather than five separate
-  // booleans.
+  // Menu bar dropdown (Glypher/File/Edit/View/Tools) — dismissed by the
+  // outside-click listener below.
   const [openMenu, setOpenMenu] = useState<"glypher" | "file" | "edit" | "view" | "tools" | null>(null);
-  const [gearOpen, setGearOpen] = useState(false);
   // Info/How-to modal, opened from the Glypher menu — a plain overlay
   // rather than another dropdown, since this content is paragraph-length,
   // not a short action list.
@@ -816,26 +812,29 @@ export default function Home() {
       const key = e.key.toLowerCase();
       if (key === "p") setDrawTool("pen");
       else if (key === "e") setDrawTool("eraser");
+      else if ((e.key === "Delete" || e.key === "Backspace") && selectedIdsRef.current.size > 0) {
+        e.preventDefault();
+        deleteStrokes(new Set(selectedIdsRef.current));
+        setSelectedIds([]);
+      }
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
-  // Dismiss an open menu-bar dropdown or the settings flyout on any click
-  // outside the menu bar / context bar (both tagged data-chrome-menu) —
-  // NOT a ref around the whole page, since that would make every click
-  // (including ones on the canvas) count as "inside".
+  // Dismiss an open menu-bar dropdown on any click outside the menu bar
+  // (tagged data-chrome-menu) — NOT a ref around the whole page, since that
+  // would make every click (including ones on the canvas) count as "inside".
   useEffect(() => {
-    if (!openMenu && !gearOpen) return;
+    if (!openMenu) return;
     function onPointerDownOutside(e: PointerEvent) {
       if (!(e.target as HTMLElement).closest?.("[data-chrome-menu]")) {
         setOpenMenu(null);
-        setGearOpen(false);
       }
     }
     window.addEventListener("pointerdown", onPointerDownOutside);
     return () => window.removeEventListener("pointerdown", onPointerDownOutside);
-  }, [openMenu, gearOpen]);
+  }, [openMenu]);
 
   // Escape closes the Info/How-to modal — the backdrop click already
   // handles pointer dismissal, this covers keyboard users.
@@ -1432,186 +1431,169 @@ export default function Home() {
             />
           </label>
         )}
-        <div className={styles.contextSpacer} />
-        {(showStrokeControls || (topMode === "draw" && drawStyle === "grid")) && (
-          <button
-            type="button"
-            className={`${styles.clearBtn} ${styles.iconOnlyBtn} ${styles.gearBtn}`}
-            aria-label="Settings"
-            title="Settings"
-            aria-expanded={gearOpen}
-            onClick={() => setGearOpen((o) => !o)}
-          >
-            <SlidersHorizontal size={16} strokeWidth={2} />
-          </button>
+        {topMode === "draw" && drawStyle === "grid" && (
+          <>
+            <div className={styles.charsetToggle}>
+              {CHARACTER_SETS.map((set) => (
+                <label key={set.id} className={styles.charsetOption}>
+                  <input type="checkbox" checked={activeSetIds.has(set.id)} onChange={() => toggleCharacterSet(set.id)} />
+                  {set.label}
+                </label>
+              ))}
+            </div>
+            <div className={styles.sliders}>
+              <label className={styles.sliderRow}>
+                <span>Cell size</span>
+                <input
+                  type="range"
+                  min={60}
+                  max={240}
+                  step={10}
+                  value={cellSize}
+                  onChange={(e) => updateCellSize(Number(e.target.value))}
+                />
+                <span className={styles.val}>{cellSize}</span>
+              </label>
+              <label className={styles.sliderRow}>
+                <span>Ascender</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  value={metrics.ascender}
+                  onChange={(e) => updateMetric("ascender", Math.min(Number(e.target.value), metrics.xHeight - 0.02))}
+                />
+                <span className={styles.val}>{metrics.ascender.toFixed(2)}</span>
+              </label>
+              <label className={styles.sliderRow}>
+                <span>X-height</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  value={metrics.xHeight}
+                  onChange={(e) =>
+                    updateMetric(
+                      "xHeight",
+                      Math.min(Math.max(Number(e.target.value), metrics.ascender + 0.02), metrics.baseline - 0.02)
+                    )
+                  }
+                />
+                <span className={styles.val}>{metrics.xHeight.toFixed(2)}</span>
+              </label>
+              <label className={styles.sliderRow}>
+                <span>Baseline</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  value={metrics.baseline}
+                  onChange={(e) =>
+                    updateMetric(
+                      "baseline",
+                      Math.min(Math.max(Number(e.target.value), metrics.xHeight + 0.02), metrics.descender - 0.02)
+                    )
+                  }
+                />
+                <span className={styles.val}>{metrics.baseline.toFixed(2)}</span>
+              </label>
+              <label className={styles.sliderRow}>
+                <span>Descender</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  value={metrics.descender}
+                  onChange={(e) => updateMetric("descender", Math.max(Number(e.target.value), metrics.baseline + 0.02))}
+                />
+                <span className={styles.val}>{metrics.descender.toFixed(2)}</span>
+              </label>
+            </div>
+          </>
         )}
-        {gearOpen && (
-          <div className={styles.settingsFlyout}>
-            {topMode === "draw" && drawStyle === "grid" && (
-              <>
-                <div className={styles.charsetToggle}>
-                  {CHARACTER_SETS.map((set) => (
-                    <label key={set.id} className={styles.charsetOption}>
-                      <input type="checkbox" checked={activeSetIds.has(set.id)} onChange={() => toggleCharacterSet(set.id)} />
-                      {set.label}
-                    </label>
-                  ))}
-                </div>
-                <div className={styles.sliders}>
-                  <label className={styles.sliderRow}>
-                    <span>Cell size</span>
-                    <input
-                      type="range"
-                      min={60}
-                      max={240}
-                      step={10}
-                      value={cellSize}
-                      onChange={(e) => updateCellSize(Number(e.target.value))}
-                    />
-                    <span className={styles.val}>{cellSize}</span>
-                  </label>
-                  <label className={styles.sliderRow}>
-                    <span>Ascender</span>
-                    <input
-                      type="range"
-                      min={0}
-                      max={1}
-                      step={0.01}
-                      value={metrics.ascender}
-                      onChange={(e) => updateMetric("ascender", Math.min(Number(e.target.value), metrics.xHeight - 0.02))}
-                    />
-                    <span className={styles.val}>{metrics.ascender.toFixed(2)}</span>
-                  </label>
-                  <label className={styles.sliderRow}>
-                    <span>X-height</span>
-                    <input
-                      type="range"
-                      min={0}
-                      max={1}
-                      step={0.01}
-                      value={metrics.xHeight}
-                      onChange={(e) =>
-                        updateMetric(
-                          "xHeight",
-                          Math.min(Math.max(Number(e.target.value), metrics.ascender + 0.02), metrics.baseline - 0.02)
-                        )
-                      }
-                    />
-                    <span className={styles.val}>{metrics.xHeight.toFixed(2)}</span>
-                  </label>
-                  <label className={styles.sliderRow}>
-                    <span>Baseline</span>
-                    <input
-                      type="range"
-                      min={0}
-                      max={1}
-                      step={0.01}
-                      value={metrics.baseline}
-                      onChange={(e) =>
-                        updateMetric(
-                          "baseline",
-                          Math.min(Math.max(Number(e.target.value), metrics.xHeight + 0.02), metrics.descender - 0.02)
-                        )
-                      }
-                    />
-                    <span className={styles.val}>{metrics.baseline.toFixed(2)}</span>
-                  </label>
-                  <label className={styles.sliderRow}>
-                    <span>Descender</span>
-                    <input
-                      type="range"
-                      min={0}
-                      max={1}
-                      step={0.01}
-                      value={metrics.descender}
-                      onChange={(e) => updateMetric("descender", Math.max(Number(e.target.value), metrics.baseline + 0.02))}
-                    />
-                    <span className={styles.val}>{metrics.descender.toFixed(2)}</span>
-                  </label>
-                </div>
-              </>
-            )}
 
-            {showStrokeControls && (
-              <>
-                <div className={styles.modeToggle} role="radiogroup" aria-label="Stroke mode">
-                  <button
-                    type="button"
-                    role="radio"
-                    aria-checked={settings.mode === "mono"}
-                    className={`${styles.modeBtn} ${settings.mode === "mono" ? styles.modeBtnActive : ""}`}
-                    onClick={() => updateSetting("mode", "mono")}
-                  >
-                    Mono line
-                  </button>
-                  <button
-                    type="button"
-                    role="radio"
-                    aria-checked={settings.mode === "dynamic"}
-                    className={`${styles.modeBtn} ${settings.mode === "dynamic" ? styles.modeBtnActive : ""}`}
-                    onClick={() => updateSetting("mode", "dynamic")}
-                  >
-                    Dynamic
-                  </button>
-                </div>
+        {showStrokeControls && (
+          <>
+            <div className={styles.modeToggle} role="radiogroup" aria-label="Stroke mode">
+              <button
+                type="button"
+                role="radio"
+                aria-checked={settings.mode === "mono"}
+                className={`${styles.modeBtn} ${settings.mode === "mono" ? styles.modeBtnActive : ""}`}
+                onClick={() => updateSetting("mode", "mono")}
+              >
+                Mono line
+              </button>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={settings.mode === "dynamic"}
+                className={`${styles.modeBtn} ${settings.mode === "dynamic" ? styles.modeBtnActive : ""}`}
+                onClick={() => updateSetting("mode", "dynamic")}
+              >
+                Dynamic
+              </button>
+            </div>
 
-                <div className={styles.sliders}>
+            <div className={styles.sliders}>
+              <label className={styles.sliderRow}>
+                <span>Size</span>
+                <input
+                  type="range"
+                  min={4}
+                  max={60}
+                  step={1}
+                  value={settings.size}
+                  onChange={(e) => updateSetting("size", Number(e.target.value))}
+                />
+                <span className={styles.val}>{settings.size}</span>
+              </label>
+              {settings.mode === "dynamic" && (
+                <>
                   <label className={styles.sliderRow}>
-                    <span>Size</span>
+                    <span>Thinning</span>
                     <input
                       type="range"
-                      min={4}
-                      max={60}
-                      step={1}
-                      value={settings.size}
-                      onChange={(e) => updateSetting("size", Number(e.target.value))}
+                      min={-1}
+                      max={1}
+                      step={0.05}
+                      value={settings.thinning}
+                      onChange={(e) => updateSetting("thinning", Number(e.target.value))}
                     />
-                    <span className={styles.val}>{settings.size}</span>
+                    <span className={styles.val}>{settings.thinning.toFixed(2)}</span>
                   </label>
-                  {settings.mode === "dynamic" && (
-                    <>
-                      <label className={styles.sliderRow}>
-                        <span>Thinning</span>
-                        <input
-                          type="range"
-                          min={-1}
-                          max={1}
-                          step={0.05}
-                          value={settings.thinning}
-                          onChange={(e) => updateSetting("thinning", Number(e.target.value))}
-                        />
-                        <span className={styles.val}>{settings.thinning.toFixed(2)}</span>
-                      </label>
-                      <label className={styles.sliderRow}>
-                        <span>Smoothing</span>
-                        <input
-                          type="range"
-                          min={0}
-                          max={1}
-                          step={0.05}
-                          value={settings.smoothing}
-                          onChange={(e) => updateSetting("smoothing", Number(e.target.value))}
-                        />
-                        <span className={styles.val}>{settings.smoothing.toFixed(2)}</span>
-                      </label>
-                      <label className={styles.sliderRow}>
-                        <span>Streamline</span>
-                        <input
-                          type="range"
-                          min={0}
-                          max={1}
-                          step={0.05}
-                          value={settings.streamline}
-                          onChange={(e) => updateSetting("streamline", Number(e.target.value))}
-                        />
-                        <span className={styles.val}>{settings.streamline.toFixed(2)}</span>
-                      </label>
-                    </>
-                  )}
-                </div>
-              </>
-            )}
-          </div>
+                  <label className={styles.sliderRow}>
+                    <span>Smoothing</span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={1}
+                      step={0.05}
+                      value={settings.smoothing}
+                      onChange={(e) => updateSetting("smoothing", Number(e.target.value))}
+                    />
+                    <span className={styles.val}>{settings.smoothing.toFixed(2)}</span>
+                  </label>
+                  <label className={styles.sliderRow}>
+                    <span>Streamline</span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={1}
+                      step={0.05}
+                      value={settings.streamline}
+                      onChange={(e) => updateSetting("streamline", Number(e.target.value))}
+                    />
+                    <span className={styles.val}>{settings.streamline.toFixed(2)}</span>
+                  </label>
+                </>
+              )}
+            </div>
+          </>
         )}
       </div>
 

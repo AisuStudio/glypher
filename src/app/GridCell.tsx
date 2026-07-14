@@ -586,10 +586,27 @@ export default function GridCell({
       redraw();
     }
 
+    // Delete/Backspace removes whatever's selected in THIS cell — a no-op
+    // everywhere else, since selectedIdsRef is empty unless the user just
+    // lasso-selected here. Guarded against typing in any input (e.g. the
+    // context bar's own Dimension field) the same way page.tsx's shortcuts
+    // are, so editing a number doesn't also wipe strokes.
+    function onKeyDown(e: KeyboardEvent) {
+      if (selectedIdsRef.current.size === 0) return;
+      if (e.key !== "Delete" && e.key !== "Backspace") return;
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) return;
+      e.preventDefault();
+      for (const id of selectedIdsRef.current) onEraseStrokeRef.current(id);
+      selectedIdsRef.current = new Set();
+      redraw();
+    }
+
     canvas.addEventListener("pointerdown", onPointerDown);
     canvas.addEventListener("pointermove", onPointerMove);
     canvas.addEventListener("pointerup", onPointerUp);
     canvas.addEventListener("pointercancel", onPointerUp);
+    window.addEventListener("keydown", onKeyDown);
 
     return () => {
       resizeObserver.disconnect();
@@ -597,6 +614,7 @@ export default function GridCell({
       canvas.removeEventListener("pointermove", onPointerMove);
       canvas.removeEventListener("pointerup", onPointerUp);
       canvas.removeEventListener("pointercancel", onPointerUp);
+      window.removeEventListener("keydown", onKeyDown);
     };
     // Mount once per cell; outlines/onStrokeComplete/metrics/bearings are read
     // via refs above so redraws after a parent re-render don't need to tear

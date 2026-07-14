@@ -128,7 +128,8 @@
 .contextBar {
   display: flex;
   align-items: center;
-  gap: var(--sp-sm);
+  flex-wrap: wrap;
+  gap: var(--sp-sm) var(--sp-lg);
   padding: var(--sp-sm) var(--sp-lg);
   border-bottom: 1px solid var(--color-cappuccino);
   position: relative;
@@ -163,31 +164,6 @@
   border-radius: 6px;
   background: var(--color-vanilla);
   color: var(--color-text);
-}
-
-.contextSpacer {
-  flex: 1;
-}
-
-.gearBtn {
-  position: relative;
-}
-
-.settingsFlyout {
-  position: absolute;
-  top: 100%;
-  right: var(--sp-lg);
-  margin-top: 4px;
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-md);
-  padding: var(--sp-md);
-  background: var(--color-vanilla);
-  border: 1px solid var(--color-cappuccino);
-  border-radius: 6px;
-  box-shadow: 2px 4px 12px rgba(31, 25, 52, 0.15);
-  z-index: 25;
-  min-width: 260px;
 }
 
 .statusBar {
