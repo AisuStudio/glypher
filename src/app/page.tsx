@@ -22,7 +22,6 @@ import {
   LineSquiggle,
   Grid3x3,
   BookA,
-  Sparkle,
   Download,
   SplinePointer,
   NotebookPen,
@@ -90,11 +89,14 @@ const TOOL_DEFS: ToolDef[] = [
 // — a flat list synthesized across the two underlying state variables
 // (topMode/drawStyle) that "which view is active" actually spans.
 type ViewDef = { key: string; label: string; icon: typeof PenTool; topMode: TopMode; drawStyle?: DrawStyle };
+// Animate is deliberately left out of this list — not far enough along yet
+// to expose in the nav — but topMode==="animate" and AnimatePanel itself are
+// untouched, so re-adding a { key: "animate", ... } entry here is all it'll
+// take to bring it back.
 const VIEW_DEFS: ViewDef[] = [
   { key: "free", label: "Free", icon: LineSquiggle, topMode: "draw", drawStyle: "free" },
   { key: "grid", label: "Grid", icon: Grid3x3, topMode: "draw", drawStyle: "grid" },
   { key: "editor", label: "Editor", icon: NotebookPen, topMode: "draw", drawStyle: "editor" },
-  { key: "animate", label: "Anim", icon: Sparkle, topMode: "animate" },
   { key: "export", label: "Export", icon: Download, topMode: "export" },
 ];
 
