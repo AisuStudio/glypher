@@ -1408,15 +1408,85 @@ export default function Home() {
           </button>
         </div>
         {topMode === "draw" && drawStyle === "free" && drawTool === "assign" && (
-          <input
-            type="text"
-            className={styles.contextField}
-            placeholder={
-              kindInput === "base" ? "character (e.g. a, é)" : kindInput === "ligature" ? "name (e.g. f_i.liga)" : "name (e.g. a.alt01)"
-            }
-            value={nameInput}
-            onChange={(e) => setNameInput(e.target.value)}
-          />
+          <>
+            <input
+              type="text"
+              className={styles.contextField}
+              placeholder={
+                kindInput === "base" ? "character (e.g. a, é)" : kindInput === "ligature" ? "name (e.g. f_i.liga)" : "name (e.g. a.alt01)"
+              }
+              value={nameInput}
+              onChange={(e) => setNameInput(e.target.value)}
+            />
+            <div className={styles.modeToggle} role="radiogroup" aria-label="Glyph kind">
+              <button
+                type="button"
+                role="radio"
+                aria-checked={kindInput === "base"}
+                className={`${styles.modeBtn} ${kindInput === "base" ? styles.modeBtnActive : ""}`}
+                onClick={() => setKindInput("base")}
+              >
+                Base
+              </button>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={kindInput === "ligature"}
+                className={`${styles.modeBtn} ${kindInput === "ligature" ? styles.modeBtnActive : ""}`}
+                onClick={() => setKindInput("ligature")}
+              >
+                Ligature
+              </button>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={kindInput === "alternate"}
+                className={`${styles.modeBtn} ${kindInput === "alternate" ? styles.modeBtnActive : ""}`}
+                onClick={() => setKindInput("alternate")}
+              >
+                Alternate
+              </button>
+            </div>
+
+            {kindInput === "base" && nameInput.trim() && (
+              <span className={styles.unicodeHint}>{unicodeFor(nameInput.trim()) ?? "not a single character"}</span>
+            )}
+            {kindInput === "ligature" && (
+              <input
+                type="text"
+                className={styles.nameInput}
+                placeholder="components (e.g. f, i)"
+                value={componentsInput}
+                onChange={(e) => setComponentsInput(e.target.value)}
+              />
+            )}
+            {kindInput === "alternate" && (
+              <input
+                type="text"
+                className={styles.nameInput}
+                placeholder="alternate of (e.g. a)"
+                value={alternateOfInput}
+                onChange={(e) => setAlternateOfInput(e.target.value)}
+              />
+            )}
+
+            <button
+              type="button"
+              className={styles.clearBtn}
+              onClick={handleAssign}
+              disabled={!nameInput.trim() || selectedIds.length === 0}
+            >
+              Assign ({selectedIds.length})
+            </button>
+            <button
+              type="button"
+              className={styles.clearBtn}
+              onClick={() => setSelectedIds([])}
+              disabled={selectedIds.length === 0}
+            >
+              Deselect
+            </button>
+          </>
         )}
         {topMode === "draw" && drawStyle === "grid" && (
           <label className={styles.contextFieldLabeled}>
@@ -1629,79 +1699,6 @@ export default function Home() {
             <span className={styles.hudLabel}>strokesSaved</span>
             {strokeCount}
           </span>
-        </div>
-      )}
-
-      {topMode === "draw" && drawStyle === "free" && drawTool === "assign" && (
-        <div className={styles.tagForm}>
-          <div className={styles.modeToggle} role="radiogroup" aria-label="Glyph kind">
-            <button
-              type="button"
-              role="radio"
-              aria-checked={kindInput === "base"}
-              className={`${styles.modeBtn} ${kindInput === "base" ? styles.modeBtnActive : ""}`}
-              onClick={() => setKindInput("base")}
-            >
-              Base
-            </button>
-            <button
-              type="button"
-              role="radio"
-              aria-checked={kindInput === "ligature"}
-              className={`${styles.modeBtn} ${kindInput === "ligature" ? styles.modeBtnActive : ""}`}
-              onClick={() => setKindInput("ligature")}
-            >
-              Ligature
-            </button>
-            <button
-              type="button"
-              role="radio"
-              aria-checked={kindInput === "alternate"}
-              className={`${styles.modeBtn} ${kindInput === "alternate" ? styles.modeBtnActive : ""}`}
-              onClick={() => setKindInput("alternate")}
-            >
-              Alternate
-            </button>
-          </div>
-
-          {kindInput === "base" && nameInput.trim() && (
-            <span className={styles.unicodeHint}>{unicodeFor(nameInput.trim()) ?? "not a single character"}</span>
-          )}
-          {kindInput === "ligature" && (
-            <input
-              type="text"
-              className={styles.nameInput}
-              placeholder="components (e.g. f, i)"
-              value={componentsInput}
-              onChange={(e) => setComponentsInput(e.target.value)}
-            />
-          )}
-          {kindInput === "alternate" && (
-            <input
-              type="text"
-              className={styles.nameInput}
-              placeholder="alternate of (e.g. a)"
-              value={alternateOfInput}
-              onChange={(e) => setAlternateOfInput(e.target.value)}
-            />
-          )}
-
-          <button
-            type="button"
-            className={styles.clearBtn}
-            onClick={handleAssign}
-            disabled={!nameInput.trim() || selectedIds.length === 0}
-          >
-            Assign ({selectedIds.length})
-          </button>
-          <button
-            type="button"
-            className={styles.clearBtn}
-            onClick={() => setSelectedIds([])}
-            disabled={selectedIds.length === 0}
-          >
-            Deselect
-          </button>
         </div>
       )}
 
