@@ -45,20 +45,259 @@
   color: var(--color-blueberry);
 }
 
-.header {
+.menuBar {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
   gap: var(--sp-md);
-  padding: var(--sp-md) var(--sp-lg);
+  padding: var(--sp-sm) var(--sp-lg);
   padding-right: 130px; /* clears the fixed BetaBadge in the top-right corner */
   border-bottom: 1px solid var(--color-cappuccino);
+  font-family: var(--font-mono);
+  font-size: 12px;
 }
 
-.logo {
-  height: 32px;
-  width: auto;
+.appName {
+  font-weight: 700;
+  margin-right: var(--sp-sm);
+}
+
+.menuItem {
+  position: relative;
+}
+
+.menuTrigger {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  background: none;
+  border: 0;
+  padding: 4px var(--sp-xs);
+  cursor: pointer;
+  color: var(--color-text);
+}
+
+.menuTrigger:hover,
+.menuTrigger[aria-expanded="true"] {
+  color: var(--color-grape);
+}
+
+.dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 4px;
+  min-width: 180px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px;
+  background: var(--color-vanilla);
+  border: 1px solid var(--color-cappuccino);
+  border-radius: 6px;
+  box-shadow: 2px 4px 12px rgba(31, 25, 52, 0.15); /* blueberry, ad-hoc — no shadow token exists yet */
+  z-index: 25;
+}
+
+.dropdownItem {
+  text-align: left;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 6px var(--sp-sm);
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--color-text);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.dropdownItem:hover:not(:disabled) {
+  background: var(--color-cappuccino);
+}
+
+.dropdownItem:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.dropdownItemActive {
+  color: var(--color-grape);
+  font-weight: 700;
+}
+
+.contextBar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-sm);
+  padding: var(--sp-sm) var(--sp-lg);
+  border-bottom: 1px solid var(--color-cappuccino);
+  position: relative;
+}
+
+.contextField {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: var(--sp-xs) var(--sp-sm);
+  border: 1px solid var(--color-cappuccino);
+  border-radius: 6px;
+  background: var(--color-vanilla);
+  color: var(--color-text);
+  min-width: 220px;
+}
+
+.contextFieldLabeled {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-xs);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--color-muted);
+}
+
+.contextFieldLabeled input {
+  width: 60px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: var(--sp-xs) var(--sp-sm);
+  border: 1px solid var(--color-cappuccino);
+  border-radius: 6px;
+  background: var(--color-vanilla);
+  color: var(--color-text);
+}
+
+.contextSpacer {
+  flex: 1;
+}
+
+.gearBtn {
+  position: relative;
+}
+
+.settingsFlyout {
+  position: absolute;
+  top: 100%;
+  right: var(--sp-lg);
+  margin-top: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-md);
+  padding: var(--sp-md);
+  background: var(--color-vanilla);
+  border: 1px solid var(--color-cappuccino);
+  border-radius: 6px;
+  box-shadow: 2px 4px 12px rgba(31, 25, 52, 0.15);
+  z-index: 25;
+  min-width: 260px;
+}
+
+.statusBar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-lg);
+  padding: var(--sp-sm) var(--sp-lg);
+  background: var(--color-blueberry);
+  color: var(--color-vanilla);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.body {
+  display: flex;
+  flex-direction: row;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.sidebarRail {
+  position: relative;
+  width: 60px;
   flex-shrink: 0;
+}
+
+.sidebar {
+  position: absolute;
+  inset: 0;
+  width: 60px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-md);
+  padding: var(--sp-md) 0;
+  background: var(--color-vanilla);
+  border-right: 1px solid var(--color-cappuccino);
+  transition: width 160ms ease;
+  z-index: 15;
+}
+
+.sidebarRail:hover .sidebar,
+.sidebar:focus-within {
+  width: 220px;
+  box-shadow: 2px 0 8px rgba(31, 25, 52, 0.15);
+}
+
+.sidebarSection {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.sidebarSectionLabel {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+  padding: 0 var(--sp-md) var(--sp-xs);
+  white-space: nowrap;
+}
+
+.sidebarItem {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-sm);
+  padding: var(--sp-sm) var(--sp-md);
+  border: 0;
+  background: none;
+  color: var(--color-text);
+  cursor: pointer;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.sidebarItem:hover {
+  background: var(--color-cappuccino);
+}
+
+.sidebarItemActive {
+  background: var(--color-blueberry);
+  color: var(--color-vanilla);
+}
+
+.sidebarIcon {
+  flex-shrink: 0;
+}
+
+.sidebarLabel {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity 100ms ease;
+}
+
+.sidebarRail:hover .sidebarLabel,
+.sidebar:focus-within .sidebarLabel {
+  opacity: 1;
+}
+
+.main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .labBanner {
@@ -84,22 +323,6 @@
   height: 100%;
   background: var(--color-vanilla);
   touch-action: none;
-}
-
-.hud {
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  z-index: 20;
-  display: flex;
-  align-items: center;
-  gap: var(--sp-lg);
-  padding: var(--sp-sm) var(--sp-lg);
-  background: var(--color-blueberry);
-  color: var(--color-vanilla);
-  font-family: var(--font-mono);
-  font-size: 12px;
 }
 
 .hudItem {
@@ -184,12 +407,6 @@
 .modeBtnActive {
   background: var(--color-blueberry);
   color: var(--color-vanilla);
-}
-
-.undoRedo {
-  display: flex;
-  gap: var(--sp-sm);
-  flex-shrink: 0;
 }
 
 .iconOnlyBtn {

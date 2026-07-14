@@ -14,7 +14,26 @@ import { saveFile } from "@/lib/saveFile";
 import { loadMetrics, saveMetrics, type Metrics } from "@/lib/metrics";
 import { loadSettings, saveSettings, type StrokeSettings } from "@/lib/settings";
 import { downloadProjectFile, parseProjectFile, applyProjectFile } from "@/lib/projectFile";
-import { Undo2, Redo2, PenTool, Eraser, LineSquiggle, Grid3x3, BookA, Sparkle, Download, SplinePointer, NotebookPen } from "lucide-react";
+import {
+  Undo2,
+  Redo2,
+  PenTool,
+  Eraser,
+  LineSquiggle,
+  Grid3x3,
+  BookA,
+  Sparkle,
+  Download,
+  SplinePointer,
+  NotebookPen,
+  MousePointer2,
+  Move,
+  RotateCw,
+  Scaling,
+  Hand,
+  SlidersHorizontal,
+  ChevronDown,
+} from "lucide-react";
 import GridCell, { DEFAULT_LEFT_BEARING, DEFAULT_RIGHT_BEARING } from "./GridCell";
 import BetaBadge from "./BetaBadge";
 import { CHARACTER_SETS, DEFAULT_CHARACTER_SET_IDS } from "@/lib/charsets";
@@ -27,11 +46,57 @@ import { DEFAULT_PRESET_ID, type AnimationPresetId } from "@/lib/animationPreset
 // glyphs — no drawing of its own yet).
 type TopMode = "draw" | "animate" | "export";
 type DrawStyle = "free" | "grid" | "editor";
-// Modify and Assign only ever apply to Free — reshaping a Grid cell's
+// Nudge and Assign only ever apply to Free — reshaping a Grid cell's
 // single-letter stroke via anchors, or lasso-tagging a stroke to a glyph,
 // isn't the point of the Grid/Editor views (Grid already tags a stroke to
 // its glyph the moment it's drawn, so there's nothing to assign there).
-type DrawTool = "pen" | "eraser" | "modify" | "assign";
+// Select is the bare lasso gesture Move/Rotate/Scale below all read from —
+// Assign keeps the exact same gesture plus its own tag-form panel, so the
+// two share the lasso code paths (see LASSO_TOOLS) rather than duplicating
+// them.
+type DrawTool = "pen" | "eraser" | "nudge" | "assign" | "select" | "move" | "rotate" | "scale" | "pan";
+// Tools whose pointerdown-through-pointerup gesture on empty/stroke space is
+// "drag out a lasso and replace selectedIds with whatever it enclosed".
+const LASSO_TOOLS = new Set<DrawTool>(["assign", "select"]);
+// Tools that read (rather than replace) the current selection — switching
+// among these must NOT clear selectedIds, unlike switching to pen/eraser/
+// nudge/pan, which should.
+const SELECTION_TOOLS = new Set<DrawTool>(["assign", "select", "move", "rotate", "scale"]);
+// Tools whose pointerdown/move/up is a rigid transform (translate/rotate/
+// scale) applied to the current selection, via handleTransformPointerDown/
+// applyTransform below.
+const TRANSFORM_TOOLS = new Set<DrawTool>(["move", "rotate", "scale"]);
+// Every DrawTool whose button only ever appears when drawStyle==="free" —
+// leaving Free resets drawTool back to "pen" if it's one of these, since
+// their UI vanishes and a stale value would silently persist otherwise.
+const FREE_ONLY_TOOLS = new Set<DrawTool>(["nudge", "assign", "select", "move", "rotate", "scale", "pan"]);
+
+// Single source of truth for the sidebar's TOOLS section and the menu bar's
+// Tools dropdown, so the two can't drift out of sync with each other.
+type ToolDef = { value: DrawTool; label: string; icon: typeof PenTool };
+const TOOL_DEFS: ToolDef[] = [
+  { value: "pen", label: "Draw", icon: PenTool },
+  { value: "eraser", label: "Erase", icon: Eraser },
+  { value: "select", label: "Select", icon: MousePointer2 },
+  { value: "nudge", label: "Nudge", icon: SplinePointer },
+  { value: "move", label: "Move", icon: Move },
+  { value: "rotate", label: "Rotate", icon: RotateCw },
+  { value: "scale", label: "Scale", icon: Scaling },
+  { value: "pan", label: "Pan", icon: Hand },
+  { value: "assign", label: "Assign", icon: BookA },
+];
+
+// Same idea for the sidebar's VIEWS section and the menu bar's View dropdown
+// — a flat list synthesized across the two underlying state variables
+// (topMode/drawStyle) that "which view is active" actually spans.
+type ViewDef = { key: string; label: string; icon: typeof PenTool; topMode: TopMode; drawStyle?: DrawStyle };
+const VIEW_DEFS: ViewDef[] = [
+  { key: "free", label: "Free", icon: LineSquiggle, topMode: "draw", drawStyle: "free" },
+  { key: "grid", label: "Grid", icon: Grid3x3, topMode: "draw", drawStyle: "grid" },
+  { key: "editor", label: "Editor", icon: NotebookPen, topMode: "draw", drawStyle: "editor" },
+  { key: "animate", label: "Anim", icon: Sparkle, topMode: "animate" },
+  { key: "export", label: "Export", icon: Download, topMode: "export" },
+];
 
 const COLOR_DEFAULT = "#1f1934"; // blueberry — untagged
 const COLOR_SELECTED = "#d8ff01"; // lemon — pending selection
@@ -108,6 +173,20 @@ function fitStrokesToCell(
   return glyphStrokes.map((s) =>
     s.points.map((p) => [p[0] * scale + offsetX, p[1] * scale + offsetY, p[2]] as StrokePoint)
   );
+}
+
+// Pivot for Move/Rotate/Scale: the bounding-box center across every
+// currently-selected stroke's points, same shape as fitStrokesToCell's own
+// bbox loop above (a single shared box across the whole selection, not one
+// per stroke, so a multi-stroke selection transforms as one rigid group).
+function selectionPivot(strokes: Stroke[]): { x: number; y: number } {
+  const allPoints = strokes.flatMap((s) => s.points);
+  let xmin = Infinity, xmax = -Infinity, ymin = Infinity, ymax = -Infinity;
+  for (const [x, y] of allPoints) {
+    xmin = Math.min(xmin, x); xmax = Math.max(xmax, x);
+    ymin = Math.min(ymin, y); ymax = Math.max(ymax, y);
+  }
+  return { x: (xmin + xmax) / 2, y: (ymin + ymax) / 2 };
 }
 
 function applyPath(ctx: CanvasRenderingContext2D, commands: PathCommand[]) {
@@ -215,6 +294,12 @@ export default function Home() {
 
   const [topMode, setTopMode] = useState<TopMode>("draw");
   const [drawStyle, setDrawStyle] = useState<DrawStyle>("free");
+
+  // Menu bar dropdown (File/Edit/View/Tools) + the context bar's settings
+  // flyout — both dismissed by the same outside-click listener below, so
+  // they share one open/close shape rather than four separate booleans.
+  const [openMenu, setOpenMenu] = useState<"file" | "edit" | "view" | "tools" | null>(null);
+  const [gearOpen, setGearOpen] = useState(false);
   const [activeSetIds, setActiveSetIds] = useState<Set<string>>(new Set(DEFAULT_CHARACTER_SET_IDS));
   const gridChars = CHARACTER_SETS.filter((s) => activeSetIds.has(s.id)).flatMap((s) => s.chars);
   const [metrics, setMetrics] = useState<Metrics>(() => loadMetrics());
@@ -268,13 +353,13 @@ export default function Home() {
   const topModeRef = useRef(topMode);
   // Editor has no stroke settings/tools of its own yet (Phase 1 is
   // read-only composition) — Free and Grid still get the full Pen/Eraser/
-  // Modify + stroke-appearance controls.
+  // Nudge + stroke-appearance controls.
   const showStrokeControls = topMode === "draw" && drawStyle !== "editor";
 
   const [drawTool, setDrawTool] = useState<DrawTool>("pen");
   const drawToolRef = useRef(drawTool);
 
-  // Modify tool: which stroke is currently being reshaped, its anchor
+  // Nudge tool: which stroke is currently being reshaped, its anchor
   // indices (Douglas-Peucker-simplified — see src/lib/simplify.ts), whether
   // this session's stroke has already been resampled down to just those
   // anchors (only happens once, lazily, on the first anchor drag — see the
@@ -285,6 +370,37 @@ export default function Home() {
   const anchorIndicesRef = useRef<number[]>([]);
   const resampledRef = useRef(false);
   const draggingAnchorRef = useRef<number | null>(null);
+
+  // Move/Rotate/Scale: a snapshot of every selected stroke's points taken at
+  // gesture start, plus the pivot (bbox center) and start pointer position —
+  // every pointermove recomputes from this frozen snapshot rather than the
+  // live (already-mutated) points, same "read pre-drag state, write pointer
+  // position" shape as Nudge's anchor drag above, just applied to a whole
+  // selection instead of one anchor. null when no such gesture is active.
+  const transformStartRef = useRef<{
+    mode: "move" | "rotate" | "scale";
+    pivotX: number;
+    pivotY: number;
+    startX: number;
+    startY: number;
+    startDist: number;
+    startAngle: number;
+    snapshot: Map<string, StrokePoint[]>;
+    // Updated every pointermove by applyTransform so redraw() can paint a
+    // pivot dot + guide line without redraw() itself needing the live
+    // pointer position passed in some other way.
+    currentX: number;
+    currentY: number;
+  } | null>(null);
+
+  // Pan: panOffsetRef is added to every drawn/read coordinate (see redraw()
+  // and pointFromEvent()) so existing strokes appear to scroll; it's a ref,
+  // not state, since it must update every pointermove frame without
+  // triggering a React re-render. panDragStartRef captures the gesture's own
+  // start in raw client coordinates (not world space) to avoid a feedback
+  // loop with the offset it's busy mutating.
+  const panOffsetRef = useRef({ x: 0, y: 0 });
+  const panDragStartRef = useRef<{ clientX: number; clientY: number; offsetX: number; offsetY: number } | null>(null);
 
   const [settings, setSettings] = useState<StrokeSettings>(() => loadSettings());
   const settingsRef = useRef(settings);
@@ -321,6 +437,11 @@ export default function Home() {
     function redraw() {
       if (!canvas || !ctx) return;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
+      // Pan only ever offsets what's drawn from here on — the grid
+      // background pans together with the ink so it still reads as a
+      // spatial reference instead of content sliding under a static grid.
+      ctx.save();
+      ctx.translate(panOffsetRef.current.x, panOffsetRef.current.y);
       drawGrid(ctx, canvas.clientWidth, canvas.clientHeight);
       const strokes = completedRef.current;
       const outlines = outlinesRef.current;
@@ -335,13 +456,40 @@ export default function Home() {
                 : COLOR_DEFAULT;
         fillOutline(ctx, outlines[i], color);
       }
-      if (drawToolRef.current !== "assign" && currentPointsRef.current.length > 0) {
+      if (!LASSO_TOOLS.has(drawToolRef.current) && currentPointsRef.current.length > 0) {
         fillOutline(ctx, outlineFor(currentPointsRef.current, settingsRef.current), COLOR_DEFAULT);
       }
-      if (drawToolRef.current === "assign" && lassoRef.current.length > 1) {
+      if (LASSO_TOOLS.has(drawToolRef.current) && lassoRef.current.length > 1) {
         strokeLassoPath(ctx, lassoRef.current);
       }
-      if (drawToolRef.current === "modify" && editingStrokeIdRef.current) {
+      if (TRANSFORM_TOOLS.has(drawToolRef.current) && transformStartRef.current) {
+        // A minimal MVP affordance for Rotate/Scale's otherwise-invisible
+        // pivot — a dot at the bbox center plus a dashed line out to the
+        // cursor — rather than a full bounding-box-with-handles UI this app
+        // has never had. Shown for Move too, for visual consistency across
+        // all three transform tools even though Move doesn't use the angle/
+        // distance the line implies.
+        const t = transformStartRef.current;
+        ctx.save();
+        ctx.setLineDash([4, 3]);
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = SKELETON_GUIDE_COLOR;
+        ctx.beginPath();
+        ctx.moveTo(t.pivotX, t.pivotY);
+        ctx.lineTo(t.currentX, t.currentY);
+        ctx.stroke();
+        ctx.restore();
+        ctx.beginPath();
+        ctx.arc(t.pivotX, t.pivotY, 4, 0, Math.PI * 2);
+        ctx.fillStyle = ANCHOR_COLOR;
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(t.pivotX, t.pivotY, 4, 0, Math.PI * 2);
+        ctx.strokeStyle = ANCHOR_RING_COLOR;
+        ctx.lineWidth = 0.5;
+        ctx.stroke();
+      }
+      if (drawToolRef.current === "nudge" && editingStrokeIdRef.current) {
         const stroke = strokes.find((s) => s.id === editingStrokeIdRef.current);
         if (stroke) {
           // The literal "core path" — the raw pen centerline, not the filled
@@ -370,6 +518,7 @@ export default function Home() {
           }
         }
       }
+      ctx.restore();
     }
     redrawRef.current = redraw;
 
@@ -395,7 +544,11 @@ export default function Home() {
 
     function pointFromEvent(e: PointerEvent): StrokePoint {
       const rect = canvas!.getBoundingClientRect();
-      return [e.clientX - rect.left, e.clientY - rect.top, e.pressure > 0 ? e.pressure : 0.5];
+      return [
+        e.clientX - rect.left - panOffsetRef.current.x,
+        e.clientY - rect.top - panOffsetRef.current.y,
+        e.pressure > 0 ? e.pressure : 0.5,
+      ];
     }
 
     function onPointerDown(e: PointerEvent) {
@@ -407,13 +560,28 @@ export default function Home() {
         redraw();
         return;
       }
-      if (topModeRef.current === "draw" && drawToolRef.current === "modify") {
-        handleModifyPointerDown(p[0], p[1]);
+      if (topModeRef.current === "draw" && drawToolRef.current === "nudge") {
+        handleNudgePointerDown(p[0], p[1]);
         redraw();
         return;
       }
+      if (topModeRef.current === "draw" && TRANSFORM_TOOLS.has(drawToolRef.current)) {
+        handleTransformPointerDown(p[0], p[1], drawToolRef.current as "move" | "rotate" | "scale");
+        redraw();
+        return;
+      }
+      if (topModeRef.current === "draw" && drawToolRef.current === "pan") {
+        panDragStartRef.current = {
+          clientX: e.clientX,
+          clientY: e.clientY,
+          offsetX: panOffsetRef.current.x,
+          offsetY: panOffsetRef.current.y,
+        };
+        canvas!.style.cursor = "grabbing";
+        return;
+      }
       drawingRef.current = true;
-      if (drawToolRef.current === "assign") {
+      if (LASSO_TOOLS.has(drawToolRef.current)) {
         lassoRef.current = [[p[0], p[1]]];
       } else {
         currentPointsRef.current = [p];
@@ -427,7 +595,7 @@ export default function Home() {
         canvas!.style.cursor = "crosshair";
         return;
       }
-      if (topModeRef.current === "draw" && drawToolRef.current === "modify") {
+      if (topModeRef.current === "draw" && drawToolRef.current === "nudge") {
         if (draggingAnchorRef.current !== null && editingStrokeIdRef.current) {
           const idx = completedRef.current.findIndex((s) => s.id === editingStrokeIdRef.current);
           if (idx !== -1) {
@@ -443,9 +611,31 @@ export default function Home() {
         canvas!.style.cursor = editingStrokeIdRef.current ? "grab" : "pointer";
         return;
       }
+      if (topModeRef.current === "draw" && TRANSFORM_TOOLS.has(drawToolRef.current)) {
+        if (transformStartRef.current) {
+          applyTransform(p[0], p[1]);
+          redraw();
+          return;
+        }
+        canvas!.style.cursor = "move";
+        return;
+      }
+      if (topModeRef.current === "draw" && drawToolRef.current === "pan") {
+        if (panDragStartRef.current) {
+          const start = panDragStartRef.current;
+          panOffsetRef.current = {
+            x: start.offsetX + (e.clientX - start.clientX),
+            y: start.offsetY + (e.clientY - start.clientY),
+          };
+          redraw();
+          return;
+        }
+        canvas!.style.cursor = "grab";
+        return;
+      }
       canvas!.style.cursor = "";
       if (!drawingRef.current) return;
-      if (drawToolRef.current === "assign") {
+      if (LASSO_TOOLS.has(drawToolRef.current)) {
         lassoRef.current.push([p[0], p[1]]);
       } else {
         currentPointsRef.current.push(p);
@@ -454,7 +644,7 @@ export default function Home() {
     }
 
     function onPointerUp(e: PointerEvent) {
-      if (topModeRef.current === "draw" && drawToolRef.current === "modify") {
+      if (topModeRef.current === "draw" && drawToolRef.current === "nudge") {
         if (draggingAnchorRef.current !== null) {
           draggingAnchorRef.current = null;
           saveStrokes(completedRef.current);
@@ -463,7 +653,22 @@ export default function Home() {
         redraw();
         return;
       }
-      if (drawToolRef.current === "assign") {
+      if (topModeRef.current === "draw" && TRANSFORM_TOOLS.has(drawToolRef.current)) {
+        if (transformStartRef.current) {
+          transformStartRef.current = null;
+          saveStrokes(completedRef.current);
+        }
+        canvas!.releasePointerCapture(e.pointerId);
+        redraw();
+        return;
+      }
+      if (topModeRef.current === "draw" && drawToolRef.current === "pan") {
+        panDragStartRef.current = null;
+        canvas!.releasePointerCapture(e.pointerId);
+        redraw();
+        return;
+      }
+      if (LASSO_TOOLS.has(drawToolRef.current)) {
         const polygon = lassoRef.current;
         const matched = completedRef.current
           .filter((s) => anyPointInPolygon(s.points.map((p) => [p[0], p[1]]) as [number, number][], polygon))
@@ -519,39 +724,43 @@ export default function Home() {
     currentPointsRef.current = [];
     lassoRef.current = [];
     setSelectedIds([]);
-    exitModifyEditing();
+    exitNudgeEditing();
     redrawRef.current();
   }, [topMode]);
 
   useEffect(() => {
     drawToolRef.current = drawTool;
-    if (drawTool !== "modify") exitModifyEditing();
+    if (drawTool !== "nudge") exitNudgeEditing();
+    if (drawTool !== "move" && drawTool !== "rotate" && drawTool !== "scale") transformStartRef.current = null;
+    if (drawTool !== "pan") panDragStartRef.current = null;
     // Switching tools mid-gesture shouldn't leave a stale in-progress pen
     // stroke or lasso outline drawn on screen for a tool that's no longer
-    // active. Selection is Assign's own working state, so it's spared here —
-    // it can only be non-empty while drawTool==="assign" anyway, since only
-    // the lasso path populates it.
+    // active. Selection is shared working state across SELECTION_TOOLS
+    // (Assign/Select/Move/Rotate/Scale), so it's spared while switching
+    // among those — only switching to a non-selection tool clears it.
     currentPointsRef.current = [];
     lassoRef.current = [];
-    if (drawTool !== "assign") setSelectedIds([]);
+    if (!SELECTION_TOOLS.has(drawTool)) setSelectedIds([]);
     redrawRef.current();
   }, [drawTool]);
 
   useEffect(() => {
-    exitModifyEditing();
-    // Leaving Free strands drawTool on a value ("modify"/"assign") whose
-    // button no longer exists in the UI — reset it back to the universal
-    // default so Grid/Editor don't silently inherit a stale tool (see
-    // GridCell's tool coercion, which would otherwise just treat it as pen
-    // with no visual indication anything was off).
-    setDrawTool((t) => (t === "modify" || t === "assign" ? "pen" : t));
+    exitNudgeEditing();
+    panOffsetRef.current = { x: 0, y: 0 };
+    // Leaving Free strands drawTool on a value ("nudge"/"assign"/"select"/
+    // "move"/"rotate"/"scale"/"pan") whose button no longer exists in the
+    // UI — reset it back to the universal default so Grid/Editor don't
+    // silently inherit a stale tool (see GridCell's tool coercion, which
+    // would otherwise just treat it as pen with no visual indication
+    // anything was off).
+    setDrawTool((t) => (FREE_ONLY_TOOLS.has(t) ? "pen" : t));
     redrawRef.current();
   }, [drawStyle]);
 
-  // Leaving the Modify tool (or switching away from Draw/Free entirely, see
+  // Leaving the Nudge tool (or switching away from Draw/Free entirely, see
   // above) clears which stroke was being reshaped — a stale editing session
   // shouldn't reappear later just because the tool got reselected.
-  function exitModifyEditing() {
+  function exitNudgeEditing() {
     editingStrokeIdRef.current = null;
     anchorIndicesRef.current = [];
     resampledRef.current = false;
@@ -600,6 +809,22 @@ export default function Home() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
+
+  // Dismiss an open menu-bar dropdown or the settings flyout on any click
+  // outside the menu bar / context bar (both tagged data-chrome-menu) —
+  // NOT a ref around the whole page, since that would make every click
+  // (including ones on the canvas) count as "inside".
+  useEffect(() => {
+    if (!openMenu && !gearOpen) return;
+    function onPointerDownOutside(e: PointerEvent) {
+      if (!(e.target as HTMLElement).closest?.("[data-chrome-menu]")) {
+        setOpenMenu(null);
+        setGearOpen(false);
+      }
+    }
+    window.addEventListener("pointerdown", onPointerDownOutside);
+    return () => window.removeEventListener("pointerdown", onPointerDownOutside);
+  }, [openMenu, gearOpen]);
 
   function handleUndo() {
     if (completedRef.current.length === 0) return;
@@ -728,14 +953,14 @@ export default function Home() {
     return null;
   }
 
-  // Modify tool click: if already editing a stroke, first check for an
+  // Nudge tool click: if already editing a stroke, first check for an
   // anchor grab (and start dragging it — lazily resampling the stroke down
   // to just its anchors on the very first drag of this session, see the
   // comment inline). Otherwise, clicking any stroke (including the one
   // already being edited) starts/switches the editing session onto it;
   // clicking empty space exits editing. Topmost (last-drawn) stroke wins,
   // same convention as the Eraser tool and GridCell's select mode.
-  function handleModifyPointerDown(x: number, y: number) {
+  function handleNudgePointerDown(x: number, y: number) {
     if (editingStrokeIdRef.current) {
       const idx = completedRef.current.findIndex((s) => s.id === editingStrokeIdRef.current);
       if (idx !== -1) {
@@ -770,7 +995,77 @@ export default function Home() {
         return;
       }
     }
-    exitModifyEditing();
+    exitNudgeEditing();
+  }
+
+  // Move/Rotate/Scale click: the pointerdown must land on a stroke that's
+  // already part of selectedIds (populated by Select/Assign's lasso first) —
+  // clicking an unselected stroke or empty space is a no-op, same "you pick
+  // your selection separately, then act on it" split as Figma/Illustrator.
+  // On a hit, the pivot (bbox center) and a frozen snapshot of every
+  // selected stroke's points are captured once; every subsequent
+  // pointermove recomputes from that snapshot rather than the live
+  // (already-mutated) points, same shape as Nudge's per-anchor drag above,
+  // just applied to a whole selection at once.
+  function handleTransformPointerDown(x: number, y: number, mode: "move" | "rotate" | "scale") {
+    let hit = false;
+    for (let i = completedRef.current.length - 1; i >= 0; i--) {
+      if (selectedIdsRef.current.has(completedRef.current[i].id) && pointInPolygon([x, y], outlinesRef.current[i])) {
+        hit = true;
+        break;
+      }
+    }
+    if (!hit) return;
+
+    const selected = completedRef.current.filter((s) => selectedIdsRef.current.has(s.id));
+    const pivot = selectionPivot(selected);
+    const snapshot = new Map(selected.map((s) => [s.id, s.points.map((p) => [...p] as StrokePoint)]));
+    transformStartRef.current = {
+      mode,
+      pivotX: pivot.x,
+      pivotY: pivot.y,
+      startX: x,
+      startY: y,
+      startDist: Math.max(Math.hypot(x - pivot.x, y - pivot.y), 1),
+      startAngle: Math.atan2(y - pivot.y, x - pivot.x),
+      snapshot,
+      currentX: x,
+      currentY: y,
+    };
+  }
+
+  // Applies the live pointer position against the frozen snapshot/pivot
+  // captured above, for whichever of Move/Rotate/Scale is active. Mutates
+  // completedRef's strokes + outlinesRef in place (mirroring every other
+  // in-place stroke edit in this file) and leaves saving for pointerup.
+  function applyTransform(x: number, y: number) {
+    const t = transformStartRef.current;
+    if (!t) return;
+    t.currentX = x;
+    t.currentY = y;
+    const dx = x - t.startX;
+    const dy = y - t.startY;
+    const angle = Math.atan2(y - t.pivotY, x - t.pivotX) - t.startAngle;
+    const scaleFactor = Math.max(Math.hypot(x - t.pivotX, y - t.pivotY), 1) / t.startDist;
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
+
+    for (const [id, points] of t.snapshot) {
+      const idx = completedRef.current.findIndex((s) => s.id === id);
+      if (idx === -1) continue;
+      const stroke = completedRef.current[idx];
+      stroke.points = points.map(([px, py, pressure]) => {
+        if (t.mode === "move") return [px + dx, py + dy, pressure] as StrokePoint;
+        if (t.mode === "rotate") {
+          const ox = px - t.pivotX;
+          const oy = py - t.pivotY;
+          return [t.pivotX + ox * cos - oy * sin, t.pivotY + ox * sin + oy * cos, pressure] as StrokePoint;
+        }
+        // scale
+        return [t.pivotX + (px - t.pivotX) * scaleFactor, t.pivotY + (py - t.pivotY) * scaleFactor, pressure] as StrokePoint;
+      });
+      outlinesRef.current[idx] = outlineFor(stroke.points, settingsRef.current);
+    }
   }
 
   function handleGridStroke(letter: string, stroke: Stroke, cellWidth: number, cellHeight: number) {
@@ -850,463 +1145,519 @@ export default function Home() {
     });
   }
 
+  function selectView(v: ViewDef) {
+    setTopMode(v.topMode);
+    if (v.drawStyle) setDrawStyle(v.drawStyle);
+    setOpenMenu(null);
+  }
+
+  const visibleTools = TOOL_DEFS.filter((t) => (FREE_ONLY_TOOLS.has(t.value) ? drawStyle === "free" : true));
+
   return (
     <div className={styles.page}>
       <BetaBadge />
-      <header className={styles.header}>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/GL_Logo.svg" alt="letter.space" className={styles.logo} />
 
-        <div className={styles.modeToggle} role="radiogroup" aria-label="Mode">
+      <div className={styles.menuBar} data-chrome-menu>
+        <span className={styles.appName}>Glypher</span>
+
+        <div className={styles.menuItem}>
           <button
             type="button"
-            role="radio"
-            aria-checked={topMode === "draw"}
-            className={`${styles.modeBtn} ${styles.iconOnlyBtn} ${topMode === "draw" ? styles.modeBtnActive : ""}`}
-            onClick={() => setTopMode("draw")}
-            aria-label="Draw"
-            title="Draw"
+            className={styles.menuTrigger}
+            aria-haspopup="menu"
+            aria-expanded={openMenu === "file"}
+            onClick={() => setOpenMenu((m) => (m === "file" ? null : "file"))}
           >
-            <PenTool size={16} strokeWidth={2} />
+            File
           </button>
-          <button
-            type="button"
-            role="radio"
-            aria-checked={topMode === "animate"}
-            className={`${styles.modeBtn} ${styles.iconOnlyBtn} ${topMode === "animate" ? styles.modeBtnActive : ""}`}
-            onClick={() => setTopMode("animate")}
-            aria-label="Animate"
-            title="Animate"
-          >
-            <Sparkle size={16} strokeWidth={2} />
-          </button>
-          <button
-            type="button"
-            role="radio"
-            aria-checked={topMode === "export"}
-            className={`${styles.modeBtn} ${styles.iconOnlyBtn} ${topMode === "export" ? styles.modeBtnActive : ""}`}
-            onClick={() => setTopMode("export")}
-            aria-label="Export"
-            title="Export"
-          >
-            <Download size={16} strokeWidth={2} />
-          </button>
-        </div>
-
-        {topMode === "draw" && (
-          <div className={styles.modeToggle} role="radiogroup" aria-label="Draw style">
-            <button
-              type="button"
-              role="radio"
-              aria-checked={drawStyle === "free"}
-              className={`${styles.modeBtn} ${styles.iconOnlyBtn} ${drawStyle === "free" ? styles.modeBtnActive : ""}`}
-              onClick={() => setDrawStyle("free")}
-              aria-label="Free"
-              title="Free"
-            >
-              <LineSquiggle size={16} strokeWidth={2} />
-            </button>
-            <button
-              type="button"
-              role="radio"
-              aria-checked={drawStyle === "grid"}
-              className={`${styles.modeBtn} ${styles.iconOnlyBtn} ${drawStyle === "grid" ? styles.modeBtnActive : ""}`}
-              onClick={() => setDrawStyle("grid")}
-              aria-label="Grid"
-              title="Grid"
-            >
-              <Grid3x3 size={16} strokeWidth={2} />
-            </button>
-            <button
-              type="button"
-              role="radio"
-              aria-checked={drawStyle === "editor"}
-              className={`${styles.modeBtn} ${styles.iconOnlyBtn} ${drawStyle === "editor" ? styles.modeBtnActive : ""}`}
-              onClick={() => setDrawStyle("editor")}
-              aria-label="Editor"
-              title="Editor"
-            >
-              <NotebookPen size={16} strokeWidth={2} />
-            </button>
-          </div>
-        )}
-
-        <div className={styles.undoRedo}>
-          <button
-            type="button"
-            className={`${styles.clearBtn} ${styles.iconOnlyBtn}`}
-            onClick={handleUndo}
-            disabled={topMode !== "draw" || strokeCount === 0}
-            aria-label="Undo"
-            title="Undo"
-          >
-            <Undo2 size={16} strokeWidth={2} />
-          </button>
-          <button
-            type="button"
-            className={`${styles.clearBtn} ${styles.iconOnlyBtn}`}
-            onClick={handleRedo}
-            disabled={topMode !== "draw" || redoCount === 0}
-            aria-label="Redo"
-            title="Redo"
-          >
-            <Redo2 size={16} strokeWidth={2} />
-          </button>
-        </div>
-
-        <button className={styles.clearBtn} onClick={handleClear} type="button">
-          Clear all
-        </button>
-      </header>
-
-      <div className={styles.labBanner}>LabMode, more coming soon!</div>
-
-      <div className={styles.toolbar}>
-        {topMode === "draw" && drawStyle === "grid" && (
-          <div className={styles.charsetToggle}>
-            {CHARACTER_SETS.map((set) => (
-              <label key={set.id} className={styles.charsetOption}>
-                <input
-                  type="checkbox"
-                  checked={activeSetIds.has(set.id)}
-                  onChange={() => toggleCharacterSet(set.id)}
-                />
-                {set.label}
-              </label>
-            ))}
-          </div>
-        )}
-
-        {topMode === "draw" && drawStyle === "grid" && (
-          <div className={styles.sliders}>
-            <label className={styles.sliderRow}>
-              <span>Cell size</span>
-              <input
-                type="range"
-                min={60}
-                max={240}
-                step={10}
-                value={cellSize}
-                onChange={(e) => updateCellSize(Number(e.target.value))}
-              />
-              <span className={styles.val}>{cellSize}</span>
-            </label>
-            <label className={styles.sliderRow}>
-              <span>Ascender</span>
-              <input
-                type="range"
-                min={0}
-                max={1}
-                step={0.01}
-                value={metrics.ascender}
-                onChange={(e) => updateMetric("ascender", Math.min(Number(e.target.value), metrics.xHeight - 0.02))}
-              />
-              <span className={styles.val}>{metrics.ascender.toFixed(2)}</span>
-            </label>
-            <label className={styles.sliderRow}>
-              <span>X-height</span>
-              <input
-                type="range"
-                min={0}
-                max={1}
-                step={0.01}
-                value={metrics.xHeight}
-                onChange={(e) =>
-                  updateMetric(
-                    "xHeight",
-                    Math.min(Math.max(Number(e.target.value), metrics.ascender + 0.02), metrics.baseline - 0.02)
-                  )
-                }
-              />
-              <span className={styles.val}>{metrics.xHeight.toFixed(2)}</span>
-            </label>
-            <label className={styles.sliderRow}>
-              <span>Baseline</span>
-              <input
-                type="range"
-                min={0}
-                max={1}
-                step={0.01}
-                value={metrics.baseline}
-                onChange={(e) =>
-                  updateMetric(
-                    "baseline",
-                    Math.min(Math.max(Number(e.target.value), metrics.xHeight + 0.02), metrics.descender - 0.02)
-                  )
-                }
-              />
-              <span className={styles.val}>{metrics.baseline.toFixed(2)}</span>
-            </label>
-            <label className={styles.sliderRow}>
-              <span>Descender</span>
-              <input
-                type="range"
-                min={0}
-                max={1}
-                step={0.01}
-                value={metrics.descender}
-                onChange={(e) => updateMetric("descender", Math.max(Number(e.target.value), metrics.baseline + 0.02))}
-              />
-              <span className={styles.val}>{metrics.descender.toFixed(2)}</span>
-            </label>
-          </div>
-        )}
-
-        {topMode === "draw" && drawStyle !== "editor" && (
-          <div className={styles.modeToggle} role="radiogroup" aria-label="Draw tool">
-            <button
-              type="button"
-              role="radio"
-              aria-checked={drawTool === "pen"}
-              className={`${styles.modeBtn} ${styles.iconOnlyBtn} ${drawTool === "pen" ? styles.modeBtnActive : ""}`}
-              onClick={() => setDrawTool("pen")}
-              aria-label="Draw (p)"
-              title="Draw (p)"
-            >
-              <PenTool size={16} strokeWidth={2} />
-            </button>
-            <button
-              type="button"
-              role="radio"
-              aria-checked={drawTool === "eraser"}
-              className={`${styles.modeBtn} ${styles.iconOnlyBtn} ${drawTool === "eraser" ? styles.modeBtnActive : ""}`}
-              onClick={() => setDrawTool("eraser")}
-              aria-label="Erase (e)"
-              title="Erase (e)"
-            >
-              <Eraser size={16} strokeWidth={2} />
-            </button>
-            {drawStyle === "free" && (
-              <button
-                type="button"
-                role="radio"
-                aria-checked={drawTool === "modify"}
-                className={`${styles.modeBtn} ${styles.iconOnlyBtn} ${drawTool === "modify" ? styles.modeBtnActive : ""}`}
-                onClick={() => setDrawTool("modify")}
-                aria-label="Modify"
-                title="Modify"
-              >
-                <SplinePointer size={16} strokeWidth={2} />
+          {openMenu === "file" && (
+            <div className={styles.dropdown} role="menu">
+              <button type="button" role="menuitem" className={styles.dropdownItem} onClick={() => { handleImportGffClick(); setOpenMenu(null); }}>
+                Import GFF
               </button>
-            )}
-            {drawStyle === "free" && (
-              <button
-                type="button"
-                role="radio"
-                aria-checked={drawTool === "assign"}
-                className={`${styles.modeBtn} ${styles.iconOnlyBtn} ${drawTool === "assign" ? styles.modeBtnActive : ""}`}
-                onClick={() => setDrawTool("assign")}
-                aria-label="Assign"
-                title="Assign"
-              >
-                <BookA size={16} strokeWidth={2} />
+              <button type="button" role="menuitem" className={styles.dropdownItem} onClick={() => { handleDownloadGff(); setOpenMenu(null); }}>
+                Export GFF
               </button>
-            )}
-          </div>
-        )}
-
-        {showStrokeControls && (
-          <>
-            <div className={styles.modeToggle} role="radiogroup" aria-label="Stroke mode">
-              <button
-                type="button"
-                role="radio"
-                aria-checked={settings.mode === "mono"}
-                className={`${styles.modeBtn} ${settings.mode === "mono" ? styles.modeBtnActive : ""}`}
-                onClick={() => updateSetting("mode", "mono")}
-              >
-                Mono line
+              <button type="button" role="menuitem" className={styles.dropdownItem} onClick={() => { handleDownloadJson(); setOpenMenu(null); }}>
+                Export JSON
               </button>
               <button
                 type="button"
-                role="radio"
-                aria-checked={settings.mode === "dynamic"}
-                className={`${styles.modeBtn} ${settings.mode === "dynamic" ? styles.modeBtnActive : ""}`}
-                onClick={() => updateSetting("mode", "dynamic")}
+                role="menuitem"
+                className={styles.dropdownItem}
+                disabled={glyphs.length === 0}
+                onClick={() => { handleExportOtf(); setOpenMenu(null); }}
               >
-                Dynamic
+                Export OTF
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className={styles.dropdownItem}
+                disabled={glyphs.length === 0}
+                onClick={() => { handleExportSkeleton(); setOpenMenu(null); }}
+              >
+                Export Skeleton SVG
               </button>
             </div>
+          )}
+        </div>
 
-            <div className={styles.sliders}>
-              <label className={styles.sliderRow}>
-                <span>Size</span>
-                <input
-                  type="range"
-                  min={4}
-                  max={60}
-                  step={1}
-                  value={settings.size}
-                  onChange={(e) => updateSetting("size", Number(e.target.value))}
-                />
-                <span className={styles.val}>{settings.size}</span>
-              </label>
-              {settings.mode === "dynamic" && (
-                <>
-                  <label className={styles.sliderRow}>
-                    <span>Thinning</span>
-                    <input
-                      type="range"
-                      min={-1}
-                      max={1}
-                      step={0.05}
-                      value={settings.thinning}
-                      onChange={(e) => updateSetting("thinning", Number(e.target.value))}
-                    />
-                    <span className={styles.val}>{settings.thinning.toFixed(2)}</span>
-                  </label>
-                  <label className={styles.sliderRow}>
-                    <span>Smoothing</span>
-                    <input
-                      type="range"
-                      min={0}
-                      max={1}
-                      step={0.05}
-                      value={settings.smoothing}
-                      onChange={(e) => updateSetting("smoothing", Number(e.target.value))}
-                    />
-                    <span className={styles.val}>{settings.smoothing.toFixed(2)}</span>
-                  </label>
-                  <label className={styles.sliderRow}>
-                    <span>Streamline</span>
-                    <input
-                      type="range"
-                      min={0}
-                      max={1}
-                      step={0.05}
-                      value={settings.streamline}
-                      onChange={(e) => updateSetting("streamline", Number(e.target.value))}
-                    />
-                    <span className={styles.val}>{settings.streamline.toFixed(2)}</span>
-                  </label>
-                </>
-              )}
+        <div className={styles.menuItem}>
+          <button
+            type="button"
+            className={styles.menuTrigger}
+            aria-haspopup="menu"
+            aria-expanded={openMenu === "edit"}
+            onClick={() => setOpenMenu((m) => (m === "edit" ? null : "edit"))}
+          >
+            Edit
+          </button>
+          {openMenu === "edit" && (
+            <div className={styles.dropdown} role="menu">
+              <button
+                type="button"
+                role="menuitem"
+                className={styles.dropdownItem}
+                disabled={topMode !== "draw" || strokeCount === 0}
+                onClick={() => { handleUndo(); setOpenMenu(null); }}
+              >
+                Undo
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className={styles.dropdownItem}
+                disabled={topMode !== "draw" || redoCount === 0}
+                onClick={() => { handleRedo(); setOpenMenu(null); }}
+              >
+                Redo
+              </button>
+              <button type="button" role="menuitem" className={styles.dropdownItem} onClick={() => { handleClear(); setOpenMenu(null); }}>
+                Clear Artboard
+              </button>
             </div>
+          )}
+        </div>
 
-          </>
-        )}
+        <div className={styles.menuItem}>
+          <button
+            type="button"
+            className={styles.menuTrigger}
+            aria-haspopup="menu"
+            aria-expanded={openMenu === "view"}
+            onClick={() => setOpenMenu((m) => (m === "view" ? null : "view"))}
+          >
+            View
+          </button>
+          {openMenu === "view" && (
+            <div className={styles.dropdown} role="menu">
+              {VIEW_DEFS.map((v) => {
+                const active = topMode === v.topMode && (!v.drawStyle || drawStyle === v.drawStyle);
+                return (
+                  <button
+                    key={v.key}
+                    type="button"
+                    role="menuitem"
+                    className={`${styles.dropdownItem} ${active ? styles.dropdownItemActive : ""}`}
+                    onClick={() => selectView(v)}
+                  >
+                    {v.label}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
 
+        <div className={styles.menuItem}>
+          <button
+            type="button"
+            className={styles.menuTrigger}
+            aria-haspopup="menu"
+            aria-expanded={openMenu === "tools"}
+            onClick={() => setOpenMenu((m) => (m === "tools" ? null : "tools"))}
+          >
+            Tools
+          </button>
+          {openMenu === "tools" && (
+            <div className={styles.dropdown} role="menu">
+              {visibleTools.map((t) => (
+                <button
+                  key={t.value}
+                  type="button"
+                  role="menuitem"
+                  className={`${styles.dropdownItem} ${drawTool === t.value ? styles.dropdownItemActive : ""}`}
+                  onClick={() => { setDrawTool(t.value); setOpenMenu(null); }}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className={styles.contextBar} data-chrome-menu>
         {topMode === "draw" && drawStyle === "free" && drawTool === "assign" && (
-          <div className={styles.tagForm}>
-            <div className={styles.modeToggle} role="radiogroup" aria-label="Glyph kind">
-              <button
-                type="button"
-                role="radio"
-                aria-checked={kindInput === "base"}
-                className={`${styles.modeBtn} ${kindInput === "base" ? styles.modeBtnActive : ""}`}
-                onClick={() => setKindInput("base")}
-              >
-                Base
-              </button>
-              <button
-                type="button"
-                role="radio"
-                aria-checked={kindInput === "ligature"}
-                className={`${styles.modeBtn} ${kindInput === "ligature" ? styles.modeBtnActive : ""}`}
-                onClick={() => setKindInput("ligature")}
-              >
-                Ligature
-              </button>
-              <button
-                type="button"
-                role="radio"
-                aria-checked={kindInput === "alternate"}
-                className={`${styles.modeBtn} ${kindInput === "alternate" ? styles.modeBtnActive : ""}`}
-                onClick={() => setKindInput("alternate")}
-              >
-                Alternate
-              </button>
-            </div>
-
-            <input
-              type="text"
-              className={styles.nameInput}
-              placeholder={
-                kindInput === "base" ? "character (e.g. a, é)" : kindInput === "ligature" ? "name (e.g. f_i.liga)" : "name (e.g. a.alt01)"
-              }
-              value={nameInput}
-              onChange={(e) => setNameInput(e.target.value)}
-            />
-
-            {kindInput === "base" && nameInput.trim() && (
-              <span className={styles.unicodeHint}>{unicodeFor(nameInput.trim()) ?? "not a single character"}</span>
-            )}
-            {kindInput === "ligature" && (
-              <input
-                type="text"
-                className={styles.nameInput}
-                placeholder="components (e.g. f, i)"
-                value={componentsInput}
-                onChange={(e) => setComponentsInput(e.target.value)}
-              />
-            )}
-            {kindInput === "alternate" && (
-              <input
-                type="text"
-                className={styles.nameInput}
-                placeholder="alternate of (e.g. a)"
-                value={alternateOfInput}
-                onChange={(e) => setAlternateOfInput(e.target.value)}
-              />
-            )}
-
-            <button
-              type="button"
-              className={styles.clearBtn}
-              onClick={handleAssign}
-              disabled={!nameInput.trim() || selectedIds.length === 0}
-            >
-              Assign ({selectedIds.length})
-            </button>
-            <button
-              type="button"
-              className={styles.clearBtn}
-              onClick={() => setSelectedIds([])}
-              disabled={selectedIds.length === 0}
-            >
-              Deselect
-            </button>
-          </div>
+          <input
+            type="text"
+            className={styles.contextField}
+            placeholder={
+              kindInput === "base" ? "character (e.g. a, é)" : kindInput === "ligature" ? "name (e.g. f_i.liga)" : "name (e.g. a.alt01)"
+            }
+            value={nameInput}
+            onChange={(e) => setNameInput(e.target.value)}
+          />
         )}
-
-        {topMode === "export" && (
-          <div className={styles.tagForm}>
-            <button type="button" className={styles.clearBtn} onClick={handleDownloadJson}>
-              Download JSON
-            </button>
-            <button
-              type="button"
-              className={styles.clearBtn}
-              onClick={handleExportOtf}
-              disabled={glyphs.length === 0}
-            >
-              Export OTF
-            </button>
-            <button
-              type="button"
-              className={styles.clearBtn}
-              onClick={handleExportSkeleton}
-              disabled={glyphs.length === 0}
-            >
-              Export Skeleton SVG
-            </button>
-            <button type="button" className={styles.clearBtn} onClick={handleDownloadGff}>
-              Download GFF
-            </button>
-            <button type="button" className={styles.clearBtn} onClick={handleImportGffClick}>
-              Import GFF
-            </button>
+        {topMode === "draw" && drawStyle === "grid" && (
+          <label className={styles.contextFieldLabeled}>
+            <span>Dimension</span>
             <input
-              ref={gffInputRef}
-              type="file"
-              accept=".gff,application/json"
-              onChange={handleImportGffChange}
-              style={{ display: "none" }}
+              type="number"
+              min={60}
+              max={240}
+              step={10}
+              value={cellSize}
+              onChange={(e) => updateCellSize(Number(e.target.value))}
             />
+          </label>
+        )}
+        <div className={styles.contextSpacer} />
+        {(showStrokeControls || (topMode === "draw" && drawStyle === "grid")) && (
+          <button
+            type="button"
+            className={`${styles.clearBtn} ${styles.iconOnlyBtn} ${styles.gearBtn}`}
+            aria-label="Settings"
+            title="Settings"
+            aria-expanded={gearOpen}
+            onClick={() => setGearOpen((o) => !o)}
+          >
+            <SlidersHorizontal size={16} strokeWidth={2} />
+          </button>
+        )}
+        {gearOpen && (
+          <div className={styles.settingsFlyout}>
+            {topMode === "draw" && drawStyle === "grid" && (
+              <>
+                <div className={styles.charsetToggle}>
+                  {CHARACTER_SETS.map((set) => (
+                    <label key={set.id} className={styles.charsetOption}>
+                      <input type="checkbox" checked={activeSetIds.has(set.id)} onChange={() => toggleCharacterSet(set.id)} />
+                      {set.label}
+                    </label>
+                  ))}
+                </div>
+                <div className={styles.sliders}>
+                  <label className={styles.sliderRow}>
+                    <span>Cell size</span>
+                    <input
+                      type="range"
+                      min={60}
+                      max={240}
+                      step={10}
+                      value={cellSize}
+                      onChange={(e) => updateCellSize(Number(e.target.value))}
+                    />
+                    <span className={styles.val}>{cellSize}</span>
+                  </label>
+                  <label className={styles.sliderRow}>
+                    <span>Ascender</span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={1}
+                      step={0.01}
+                      value={metrics.ascender}
+                      onChange={(e) => updateMetric("ascender", Math.min(Number(e.target.value), metrics.xHeight - 0.02))}
+                    />
+                    <span className={styles.val}>{metrics.ascender.toFixed(2)}</span>
+                  </label>
+                  <label className={styles.sliderRow}>
+                    <span>X-height</span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={1}
+                      step={0.01}
+                      value={metrics.xHeight}
+                      onChange={(e) =>
+                        updateMetric(
+                          "xHeight",
+                          Math.min(Math.max(Number(e.target.value), metrics.ascender + 0.02), metrics.baseline - 0.02)
+                        )
+                      }
+                    />
+                    <span className={styles.val}>{metrics.xHeight.toFixed(2)}</span>
+                  </label>
+                  <label className={styles.sliderRow}>
+                    <span>Baseline</span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={1}
+                      step={0.01}
+                      value={metrics.baseline}
+                      onChange={(e) =>
+                        updateMetric(
+                          "baseline",
+                          Math.min(Math.max(Number(e.target.value), metrics.xHeight + 0.02), metrics.descender - 0.02)
+                        )
+                      }
+                    />
+                    <span className={styles.val}>{metrics.baseline.toFixed(2)}</span>
+                  </label>
+                  <label className={styles.sliderRow}>
+                    <span>Descender</span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={1}
+                      step={0.01}
+                      value={metrics.descender}
+                      onChange={(e) => updateMetric("descender", Math.max(Number(e.target.value), metrics.baseline + 0.02))}
+                    />
+                    <span className={styles.val}>{metrics.descender.toFixed(2)}</span>
+                  </label>
+                </div>
+              </>
+            )}
+
+            {showStrokeControls && (
+              <>
+                <div className={styles.modeToggle} role="radiogroup" aria-label="Stroke mode">
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={settings.mode === "mono"}
+                    className={`${styles.modeBtn} ${settings.mode === "mono" ? styles.modeBtnActive : ""}`}
+                    onClick={() => updateSetting("mode", "mono")}
+                  >
+                    Mono line
+                  </button>
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={settings.mode === "dynamic"}
+                    className={`${styles.modeBtn} ${settings.mode === "dynamic" ? styles.modeBtnActive : ""}`}
+                    onClick={() => updateSetting("mode", "dynamic")}
+                  >
+                    Dynamic
+                  </button>
+                </div>
+
+                <div className={styles.sliders}>
+                  <label className={styles.sliderRow}>
+                    <span>Size</span>
+                    <input
+                      type="range"
+                      min={4}
+                      max={60}
+                      step={1}
+                      value={settings.size}
+                      onChange={(e) => updateSetting("size", Number(e.target.value))}
+                    />
+                    <span className={styles.val}>{settings.size}</span>
+                  </label>
+                  {settings.mode === "dynamic" && (
+                    <>
+                      <label className={styles.sliderRow}>
+                        <span>Thinning</span>
+                        <input
+                          type="range"
+                          min={-1}
+                          max={1}
+                          step={0.05}
+                          value={settings.thinning}
+                          onChange={(e) => updateSetting("thinning", Number(e.target.value))}
+                        />
+                        <span className={styles.val}>{settings.thinning.toFixed(2)}</span>
+                      </label>
+                      <label className={styles.sliderRow}>
+                        <span>Smoothing</span>
+                        <input
+                          type="range"
+                          min={0}
+                          max={1}
+                          step={0.05}
+                          value={settings.smoothing}
+                          onChange={(e) => updateSetting("smoothing", Number(e.target.value))}
+                        />
+                        <span className={styles.val}>{settings.smoothing.toFixed(2)}</span>
+                      </label>
+                      <label className={styles.sliderRow}>
+                        <span>Streamline</span>
+                        <input
+                          type="range"
+                          min={0}
+                          max={1}
+                          step={0.05}
+                          value={settings.streamline}
+                          onChange={(e) => updateSetting("streamline", Number(e.target.value))}
+                        />
+                        <span className={styles.val}>{settings.streamline.toFixed(2)}</span>
+                      </label>
+                    </>
+                  )}
+                </div>
+              </>
+            )}
           </div>
         )}
       </div>
 
+      <div className={styles.labBanner}>LabMode, more coming soon!</div>
+
+      <input
+        ref={gffInputRef}
+        type="file"
+        accept=".gff,application/json"
+        onChange={handleImportGffChange}
+        style={{ display: "none" }}
+      />
+
+      {topMode === "draw" && (
+        <div className={styles.statusBar}>
+          <span className={styles.hudItem}>
+            <span className={styles.hudLabel}>mode</span>
+            {drawStyle === "free" ? "Free" : drawStyle === "grid" ? "Grid" : "Editor"}
+          </span>
+          <span className={styles.hudItem}>
+            <span className={styles.hudLabel}>pointerType</span>
+            {hud.pointerType}
+          </span>
+          <span className={styles.hudItem}>
+            <span className={styles.hudLabel}>pressure</span>
+            {hud.pressure.toFixed(2)}
+          </span>
+          <span className={styles.hudItem}>
+            <span className={styles.hudLabel}>x, y</span>
+            {hud.x}, {hud.y}
+          </span>
+          <span className={styles.hudItem}>
+            <span className={styles.hudLabel}>strokesSaved</span>
+            {strokeCount}
+          </span>
+        </div>
+      )}
+
+      {topMode === "draw" && drawStyle === "free" && drawTool === "assign" && (
+        <div className={styles.tagForm}>
+          <div className={styles.modeToggle} role="radiogroup" aria-label="Glyph kind">
+            <button
+              type="button"
+              role="radio"
+              aria-checked={kindInput === "base"}
+              className={`${styles.modeBtn} ${kindInput === "base" ? styles.modeBtnActive : ""}`}
+              onClick={() => setKindInput("base")}
+            >
+              Base
+            </button>
+            <button
+              type="button"
+              role="radio"
+              aria-checked={kindInput === "ligature"}
+              className={`${styles.modeBtn} ${kindInput === "ligature" ? styles.modeBtnActive : ""}`}
+              onClick={() => setKindInput("ligature")}
+            >
+              Ligature
+            </button>
+            <button
+              type="button"
+              role="radio"
+              aria-checked={kindInput === "alternate"}
+              className={`${styles.modeBtn} ${kindInput === "alternate" ? styles.modeBtnActive : ""}`}
+              onClick={() => setKindInput("alternate")}
+            >
+              Alternate
+            </button>
+          </div>
+
+          {kindInput === "base" && nameInput.trim() && (
+            <span className={styles.unicodeHint}>{unicodeFor(nameInput.trim()) ?? "not a single character"}</span>
+          )}
+          {kindInput === "ligature" && (
+            <input
+              type="text"
+              className={styles.nameInput}
+              placeholder="components (e.g. f, i)"
+              value={componentsInput}
+              onChange={(e) => setComponentsInput(e.target.value)}
+            />
+          )}
+          {kindInput === "alternate" && (
+            <input
+              type="text"
+              className={styles.nameInput}
+              placeholder="alternate of (e.g. a)"
+              value={alternateOfInput}
+              onChange={(e) => setAlternateOfInput(e.target.value)}
+            />
+          )}
+
+          <button
+            type="button"
+            className={styles.clearBtn}
+            onClick={handleAssign}
+            disabled={!nameInput.trim() || selectedIds.length === 0}
+          >
+            Assign ({selectedIds.length})
+          </button>
+          <button
+            type="button"
+            className={styles.clearBtn}
+            onClick={() => setSelectedIds([])}
+            disabled={selectedIds.length === 0}
+          >
+            Deselect
+          </button>
+        </div>
+      )}
+
+      <div className={styles.body}>
+        <nav className={styles.sidebarRail}>
+          <div className={styles.sidebar}>
+            {topMode === "draw" && drawStyle !== "editor" && (
+              <div className={styles.sidebarSection}>
+                <div className={styles.sidebarSectionLabel}>Tools</div>
+                {visibleTools.map((t) => (
+                  <button
+                    key={t.value}
+                    type="button"
+                    className={`${styles.sidebarItem} ${drawTool === t.value ? styles.sidebarItemActive : ""}`}
+                    onClick={() => setDrawTool(t.value)}
+                    aria-label={t.label}
+                    title={t.label}
+                  >
+                    <t.icon size={18} strokeWidth={2} className={styles.sidebarIcon} />
+                    <span className={styles.sidebarLabel}>{t.label}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            <div className={styles.sidebarSection}>
+              <div className={styles.sidebarSectionLabel}>Views</div>
+              {VIEW_DEFS.map((v) => {
+                const active = topMode === v.topMode && (!v.drawStyle || drawStyle === v.drawStyle);
+                return (
+                  <button
+                    key={v.key}
+                    type="button"
+                    className={`${styles.sidebarItem} ${active ? styles.sidebarItemActive : ""}`}
+                    onClick={() => selectView(v)}
+                    aria-label={v.label}
+                    title={v.label}
+                  >
+                    <v.icon size={18} strokeWidth={2} className={styles.sidebarIcon} />
+                    <span className={styles.sidebarLabel}>{v.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </nav>
+
+        <main className={styles.main}>
       {topMode === "export" && (
         <section className={styles.exportPanel}>
           <textarea className={styles.exportOutput} readOnly rows={20} value={exportJson} />
@@ -1405,31 +1756,8 @@ export default function Home() {
           onPresetChange={setAnimatePresetId}
         />
       )}
-
-      {topMode === "draw" && (
-        <div className={styles.hud}>
-          <span className={styles.hudItem}>
-            <span className={styles.hudLabel}>mode</span>
-            {drawStyle === "free" ? "Free" : drawStyle === "grid" ? "Grid" : "Editor"}
-          </span>
-          <span className={styles.hudItem}>
-            <span className={styles.hudLabel}>pointerType</span>
-            {hud.pointerType}
-          </span>
-          <span className={styles.hudItem}>
-            <span className={styles.hudLabel}>pressure</span>
-            {hud.pressure.toFixed(2)}
-          </span>
-          <span className={styles.hudItem}>
-            <span className={styles.hudLabel}>x, y</span>
-            {hud.x}, {hud.y}
-          </span>
-          <span className={styles.hudItem}>
-            <span className={styles.hudLabel}>strokesSaved</span>
-            {strokeCount}
-          </span>
-        </div>
-      )}
+        </main>
+      </div>
     </div>
   );
 }
