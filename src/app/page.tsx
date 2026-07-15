@@ -252,21 +252,48 @@ function compileDocument(glyphs: Glyph[], strokes: Stroke[], settings: StrokeSet
   };
 }
 
-const GRID_SPACING = 100;
-const GRID_COLOR = "#d9d7ce"; // cappuccino — subtle against the vanilla canvas background
+// Grid View's cells use a fixed 16:9 height-to-cellSize ratio (see the
+// cellHeightPx computation below) — shared here so Free mode's type-guide
+// raster repeats at the same row height instead of drifting out of sync.
+const CELL_ASPECT_RATIO = 16 / 9;
 
-function drawGrid(ctx: CanvasRenderingContext2D, width: number, height: number) {
+// Same idea as GridCell's drawGuides, but tiled down the whole canvas as
+// repeating rows (instead of once per cell) — Free mode has no discrete
+// cells, so the row height stands in for "one line of text" at the current
+// Cell size, keeping proportions consistent with Grid mode.
+function drawTypeGuideRows(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  metrics: Metrics,
+  rowHeight: number
+) {
+  if (rowHeight <= 0) return;
   ctx.save();
-  ctx.strokeStyle = GRID_COLOR;
-  ctx.lineWidth = 1;
+  ctx.lineWidth = 0.5;
+  ctx.strokeStyle = SKELETON_GUIDE_COLOR;
+
+  ctx.setLineDash([3, 3]);
   ctx.beginPath();
-  for (let x = GRID_SPACING; x < width; x += GRID_SPACING) {
-    ctx.moveTo(x + 0.5, 0);
-    ctx.lineTo(x + 0.5, height);
+  for (let rowTop = 0; rowTop < height + rowHeight; rowTop += rowHeight) {
+    const ascY = Math.round(rowTop + metrics.ascender * rowHeight) + 0.5;
+    const xHeightY = Math.round(rowTop + metrics.xHeight * rowHeight) + 0.5;
+    const descY = Math.round(rowTop + metrics.descender * rowHeight) + 0.5;
+    ctx.moveTo(0, ascY);
+    ctx.lineTo(width, ascY);
+    ctx.moveTo(0, xHeightY);
+    ctx.lineTo(width, xHeightY);
+    ctx.moveTo(0, descY);
+    ctx.lineTo(width, descY);
   }
-  for (let y = GRID_SPACING; y < height; y += GRID_SPACING) {
-    ctx.moveTo(0, y + 0.5);
-    ctx.lineTo(width, y + 0.5);
+  ctx.stroke();
+
+  ctx.setLineDash([]);
+  ctx.beginPath();
+  for (let rowTop = 0; rowTop < height + rowHeight; rowTop += rowHeight) {
+    const baseY = Math.round(rowTop + metrics.baseline * rowHeight) + 0.5;
+    ctx.moveTo(0, baseY);
+    ctx.lineTo(width, baseY);
   }
   ctx.stroke();
   ctx.restore();
@@ -444,6 +471,11 @@ export default function Home() {
 
   const [settings, setSettings] = useState<StrokeSettings>(() => loadSettings());
   const settingsRef = useRef(settings);
+  // Drive Free mode's type-guide raster (see drawTypeGuideRows) — refs, not
+  // direct state reads, since the redraw() that consumes them lives inside
+  // the mount-once pointer-handling effect below.
+  const metricsRef = useRef(metrics);
+  const cellSizeRef = useRef(cellSize);
 
   // Lazy initializer, not useEffect + setGlyphs([]) then load: starting from an empty
   // array and loading afterward would let the save-on-change effect below fire once
@@ -483,7 +515,13 @@ export default function Home() {
       // spatial reference instead of content sliding under a static grid.
       ctx.save();
       ctx.translate(panOffsetRef.current.x, panOffsetRef.current.y);
-      drawGrid(ctx, canvas.clientWidth, canvas.clientHeight);
+      drawTypeGuideRows(
+        ctx,
+        canvas.clientWidth,
+        canvas.clientHeight,
+        metricsRef.current,
+        cellSizeRef.current * CELL_ASPECT_RATIO
+      );
       const strokes = completedRef.current;
       const outlines = outlinesRef.current;
       for (let i = 0; i < strokes.length; i++) {
@@ -763,6 +801,18 @@ export default function Home() {
   useEffect(() => {
     drawStyleRef.current = drawStyle;
   }, [drawStyle]);
+
+  // Keep Free mode's type-guide raster in sync whenever the metrics that
+  // define it (or the row height they're stretched across) change.
+  useEffect(() => {
+    metricsRef.current = metrics;
+    redrawRef.current();
+  }, [metrics]);
+
+  useEffect(() => {
+    cellSizeRef.current = cellSize;
+    redrawRef.current();
+  }, [cellSize]);
 
   useEffect(() => {
     topModeRef.current = topMode;
@@ -1587,7 +1637,7 @@ export default function Home() {
             </button>
           </>
         )}
-        {topMode === "draw" && drawStyle === "grid" && (
+        {topMode === "draw" && (drawStyle === "grid" || drawStyle === "free") && (
           <label className={styles.contextFieldLabeled}>
             <span>Dimension</span>
             <input
@@ -1601,101 +1651,101 @@ export default function Home() {
           </label>
         )}
         {topMode === "draw" && drawStyle === "grid" && (
-          <>
-            <div className={styles.menuItem} data-chrome-menu>
-              <button
-                type="button"
-                className={styles.menuTrigger}
-                aria-haspopup="menu"
-                aria-expanded={openMenu === "charset"}
-                onClick={() => setOpenMenu((m) => (m === "charset" ? null : "charset"))}
-              >
-                Character sets ({activeSetIds.size}) <ChevronDown size={12} strokeWidth={2} />
-              </button>
-              {openMenu === "charset" && (
-                <div className={styles.dropdown} role="menu">
-                  {CHARACTER_SETS.map((set) => (
-                    <label key={set.id} className={styles.charsetOption}>
-                      <input type="checkbox" checked={activeSetIds.has(set.id)} onChange={() => toggleCharacterSet(set.id)} />
-                      {set.label}
-                    </label>
-                  ))}
-                </div>
-              )}
-            </div>
-            <div className={styles.sliders}>
-              <label className={styles.sliderRow}>
-                <span>Cell size</span>
-                <input
-                  type="range"
-                  min={60}
-                  max={240}
-                  step={10}
-                  value={cellSize}
-                  onChange={(e) => updateCellSize(Number(e.target.value))}
-                />
-                <span className={styles.val}>{cellSize}</span>
-              </label>
-              <label className={styles.sliderRow}>
-                <span>Ascender</span>
-                <input
-                  type="range"
-                  min={0}
-                  max={1}
-                  step={0.01}
-                  value={metrics.ascender}
-                  onChange={(e) => updateMetric("ascender", Math.min(Number(e.target.value), metrics.xHeight - 0.02))}
-                />
-                <span className={styles.val}>{metrics.ascender.toFixed(2)}</span>
-              </label>
-              <label className={styles.sliderRow}>
-                <span>X-height</span>
-                <input
-                  type="range"
-                  min={0}
-                  max={1}
-                  step={0.01}
-                  value={metrics.xHeight}
-                  onChange={(e) =>
-                    updateMetric(
-                      "xHeight",
-                      Math.min(Math.max(Number(e.target.value), metrics.ascender + 0.02), metrics.baseline - 0.02)
-                    )
-                  }
-                />
-                <span className={styles.val}>{metrics.xHeight.toFixed(2)}</span>
-              </label>
-              <label className={styles.sliderRow}>
-                <span>Baseline</span>
-                <input
-                  type="range"
-                  min={0}
-                  max={1}
-                  step={0.01}
-                  value={metrics.baseline}
-                  onChange={(e) =>
-                    updateMetric(
-                      "baseline",
-                      Math.min(Math.max(Number(e.target.value), metrics.xHeight + 0.02), metrics.descender - 0.02)
-                    )
-                  }
-                />
-                <span className={styles.val}>{metrics.baseline.toFixed(2)}</span>
-              </label>
-              <label className={styles.sliderRow}>
-                <span>Descender</span>
-                <input
-                  type="range"
-                  min={0}
-                  max={1}
-                  step={0.01}
-                  value={metrics.descender}
-                  onChange={(e) => updateMetric("descender", Math.max(Number(e.target.value), metrics.baseline + 0.02))}
-                />
-                <span className={styles.val}>{metrics.descender.toFixed(2)}</span>
-              </label>
-            </div>
-          </>
+          <div className={styles.menuItem} data-chrome-menu>
+            <button
+              type="button"
+              className={styles.menuTrigger}
+              aria-haspopup="menu"
+              aria-expanded={openMenu === "charset"}
+              onClick={() => setOpenMenu((m) => (m === "charset" ? null : "charset"))}
+            >
+              Character sets ({activeSetIds.size}) <ChevronDown size={12} strokeWidth={2} />
+            </button>
+            {openMenu === "charset" && (
+              <div className={styles.dropdown} role="menu">
+                {CHARACTER_SETS.map((set) => (
+                  <label key={set.id} className={styles.charsetOption}>
+                    <input type="checkbox" checked={activeSetIds.has(set.id)} onChange={() => toggleCharacterSet(set.id)} />
+                    {set.label}
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+        {topMode === "draw" && (drawStyle === "grid" || drawStyle === "free") && (
+          <div className={styles.sliders}>
+            <label className={styles.sliderRow}>
+              <span>Cell size</span>
+              <input
+                type="range"
+                min={60}
+                max={240}
+                step={10}
+                value={cellSize}
+                onChange={(e) => updateCellSize(Number(e.target.value))}
+              />
+              <span className={styles.val}>{cellSize}</span>
+            </label>
+            <label className={styles.sliderRow}>
+              <span>Ascender</span>
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.01}
+                value={metrics.ascender}
+                onChange={(e) => updateMetric("ascender", Math.min(Number(e.target.value), metrics.xHeight - 0.02))}
+              />
+              <span className={styles.val}>{metrics.ascender.toFixed(2)}</span>
+            </label>
+            <label className={styles.sliderRow}>
+              <span>X-height</span>
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.01}
+                value={metrics.xHeight}
+                onChange={(e) =>
+                  updateMetric(
+                    "xHeight",
+                    Math.min(Math.max(Number(e.target.value), metrics.ascender + 0.02), metrics.baseline - 0.02)
+                  )
+                }
+              />
+              <span className={styles.val}>{metrics.xHeight.toFixed(2)}</span>
+            </label>
+            <label className={styles.sliderRow}>
+              <span>Baseline</span>
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.01}
+                value={metrics.baseline}
+                onChange={(e) =>
+                  updateMetric(
+                    "baseline",
+                    Math.min(Math.max(Number(e.target.value), metrics.xHeight + 0.02), metrics.descender - 0.02)
+                  )
+                }
+              />
+              <span className={styles.val}>{metrics.baseline.toFixed(2)}</span>
+            </label>
+            <label className={styles.sliderRow}>
+              <span>Descender</span>
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.01}
+                value={metrics.descender}
+                onChange={(e) => updateMetric("descender", Math.max(Number(e.target.value), metrics.baseline + 0.02))}
+              />
+              <span className={styles.val}>{metrics.descender.toFixed(2)}</span>
+            </label>
+          </div>
         )}
 
         {showStrokeControls && (
@@ -1903,7 +1953,7 @@ export default function Home() {
                   .filter((s): s is Stroke => Boolean(s))
               : [];
             const needsFit = glyph && !(glyph.cellWidth && glyph.cellHeight);
-            const cellHeightPx = cellSize * (16 / 9);
+            const cellHeightPx = cellSize * CELL_ASPECT_RATIO;
             const fittedPoints = needsFit
               ? fitStrokesToCell(glyphStrokes, letter, cellSize, cellHeightPx, metrics)
               : glyphStrokes.map((s) => s.points);
