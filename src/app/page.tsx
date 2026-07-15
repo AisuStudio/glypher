@@ -1562,255 +1562,70 @@ export default function Home() {
         )}
       </div>
 
-      <div className={styles.contextBar} data-chrome-menu>
-        {topMode === "draw" && drawStyle === "free" && drawTool === "assign" && (
-          <>
-            <input
-              type="text"
-              className={styles.contextField}
-              placeholder={
-                kindInput === "base" ? "character (e.g. a, é)" : kindInput === "ligature" ? "name (e.g. f_i.liga)" : "name (e.g. a.alt01)"
-              }
-              value={nameInput}
-              onChange={(e) => setNameInput(e.target.value)}
-            />
-            <div className={styles.modeToggle} role="radiogroup" aria-label="Glyph kind">
-              <button
-                type="button"
-                role="radio"
-                aria-checked={kindInput === "base"}
-                className={`${styles.modeBtn} ${kindInput === "base" ? styles.modeBtnActive : ""}`}
-                onClick={() => setKindInput("base")}
-              >
-                Base
-              </button>
-              <button
-                type="button"
-                role="radio"
-                aria-checked={kindInput === "ligature"}
-                className={`${styles.modeBtn} ${kindInput === "ligature" ? styles.modeBtnActive : ""}`}
-                onClick={() => setKindInput("ligature")}
-              >
-                Ligature
-              </button>
-              <button
-                type="button"
-                role="radio"
-                aria-checked={kindInput === "alternate"}
-                className={`${styles.modeBtn} ${kindInput === "alternate" ? styles.modeBtnActive : ""}`}
-                onClick={() => setKindInput("alternate")}
-              >
-                Alternate
-              </button>
-            </div>
+      <div className={styles.toolsViewsBar} data-chrome-menu>
+        <div className={styles.hBarGroup}>
+          <button
+            type="button"
+            className={styles.hBarItem}
+            onClick={handleUndo}
+            disabled={topMode !== "draw" || undoCount === 0}
+            aria-label="Undo"
+            title="Undo"
+          >
+            <Undo2 size={16} strokeWidth={2} />
+            <span>Undo</span>
+          </button>
+          <button
+            type="button"
+            className={styles.hBarItem}
+            onClick={handleRedo}
+            disabled={topMode !== "draw" || redoCount === 0}
+            aria-label="Redo"
+            title="Redo"
+          >
+            <Redo2 size={16} strokeWidth={2} />
+            <span>Redo</span>
+          </button>
+        </div>
 
-            {kindInput === "base" && nameInput.trim() && (
-              <span className={styles.unicodeHint}>{unicodeFor(nameInput.trim()) ?? "not a single character"}</span>
-            )}
-            {kindInput === "ligature" && (
-              <input
-                type="text"
-                className={styles.nameInput}
-                placeholder="components (e.g. f, i)"
-                value={componentsInput}
-                onChange={(e) => setComponentsInput(e.target.value)}
-              />
-            )}
-            {kindInput === "alternate" && (
-              <input
-                type="text"
-                className={styles.nameInput}
-                placeholder="alternate of (e.g. a)"
-                value={alternateOfInput}
-                onChange={(e) => setAlternateOfInput(e.target.value)}
-              />
-            )}
-
-            <button
-              type="button"
-              className={styles.clearBtn}
-              onClick={handleAssign}
-              disabled={!nameInput.trim() || selectedIds.length === 0}
-            >
-              Assign ({selectedIds.length})
-            </button>
-            <button
-              type="button"
-              className={styles.clearBtn}
-              onClick={() => setSelectedIds([])}
-              disabled={selectedIds.length === 0}
-            >
-              Deselect
-            </button>
-          </>
-        )}
-        {topMode === "draw" && drawStyle === "grid" && (
-          <div className={styles.sliders}>
-            <label className={styles.sliderRow}>
-              <span>Cell size</span>
-              <input
-                type="range"
-                min={60}
-                max={240}
-                step={10}
-                value={cellSize}
-                onChange={(e) => updateCellSize(Number(e.target.value))}
-              />
-              <span className={styles.val}>{cellSize}</span>
-            </label>
-            <label className={styles.sliderRow}>
-              <span>Ascender</span>
-              <input
-                type="range"
-                min={0}
-                max={1}
-                step={0.01}
-                value={metrics.ascender}
-                onChange={(e) => updateMetric("ascender", Math.min(Number(e.target.value), metrics.xHeight - 0.02))}
-              />
-              <span className={styles.val}>{metrics.ascender.toFixed(2)}</span>
-            </label>
-            <label className={styles.sliderRow}>
-              <span>X-height</span>
-              <input
-                type="range"
-                min={0}
-                max={1}
-                step={0.01}
-                value={metrics.xHeight}
-                onChange={(e) =>
-                  updateMetric(
-                    "xHeight",
-                    Math.min(Math.max(Number(e.target.value), metrics.ascender + 0.02), metrics.baseline - 0.02)
-                  )
-                }
-              />
-              <span className={styles.val}>{metrics.xHeight.toFixed(2)}</span>
-            </label>
-            <label className={styles.sliderRow}>
-              <span>Baseline</span>
-              <input
-                type="range"
-                min={0}
-                max={1}
-                step={0.01}
-                value={metrics.baseline}
-                onChange={(e) =>
-                  updateMetric(
-                    "baseline",
-                    Math.min(Math.max(Number(e.target.value), metrics.xHeight + 0.02), metrics.descender - 0.02)
-                  )
-                }
-              />
-              <span className={styles.val}>{metrics.baseline.toFixed(2)}</span>
-            </label>
-            <label className={styles.sliderRow}>
-              <span>Descender</span>
-              <input
-                type="range"
-                min={0}
-                max={1}
-                step={0.01}
-                value={metrics.descender}
-                onChange={(e) => updateMetric("descender", Math.max(Number(e.target.value), metrics.baseline + 0.02))}
-              />
-              <span className={styles.val}>{metrics.descender.toFixed(2)}</span>
-            </label>
-          </div>
-        )}
-        {topMode === "draw" && drawStyle === "free" && (
-          <div className={styles.sliders}>
-            <label className={styles.sliderRow}>
-              <span>Line spacing</span>
-              <input
-                type="range"
-                min={20}
-                max={300}
-                step={5}
-                value={lineSpacing}
-                onChange={(e) => updateLineSpacing(Number(e.target.value))}
-              />
-              <span className={styles.val}>{lineSpacing}</span>
-            </label>
+        {topMode === "draw" && drawStyle !== "editor" && (
+          <div className={styles.hBarGroup}>
+            <span className={styles.hBarLabel}>Tools</span>
+            {visibleTools.map((t) => (
+              <button
+                key={t.value}
+                type="button"
+                className={`${styles.hBarItem} ${drawTool === t.value ? styles.hBarItemActive : ""}`}
+                onClick={() => setDrawTool(t.value)}
+                aria-label={`${t.label} (${t.shortcut})`}
+                title={`${t.label} (${t.shortcut})`}
+              >
+                <t.icon size={16} strokeWidth={2} />
+                <span>{t.label}</span>
+              </button>
+            ))}
           </div>
         )}
 
-        {showStrokeControls && (
-          <div className={styles.sliders}>
-            <div className={styles.modeToggle} role="radiogroup" aria-label="Stroke mode">
+        <div className={styles.hBarGroup}>
+          <span className={styles.hBarLabel}>Views</span>
+          {VIEW_DEFS.map((v) => {
+            const active = topMode === v.topMode && (!v.drawStyle || drawStyle === v.drawStyle);
+            return (
               <button
+                key={v.key}
                 type="button"
-                role="radio"
-                aria-checked={settings.mode === "mono"}
-                className={`${styles.modeBtn} ${settings.mode === "mono" ? styles.modeBtnActive : ""}`}
-                onClick={() => updateSetting("mode", "mono")}
+                className={`${styles.hBarItem} ${active ? styles.hBarItemActive : ""}`}
+                onClick={() => selectView(v)}
+                aria-label={v.label}
+                title={v.label}
               >
-                Mono line
+                <v.icon size={16} strokeWidth={2} />
+                <span>{v.label}</span>
               </button>
-              <button
-                type="button"
-                role="radio"
-                aria-checked={settings.mode === "dynamic"}
-                className={`${styles.modeBtn} ${settings.mode === "dynamic" ? styles.modeBtnActive : ""}`}
-                onClick={() => updateSetting("mode", "dynamic")}
-              >
-                Dynamic
-              </button>
-            </div>
-            <label className={styles.sliderRow}>
-              <span>Size</span>
-              <input
-                type="range"
-                min={4}
-                max={60}
-                step={1}
-                value={settings.size}
-                onChange={(e) => updateSetting("size", Number(e.target.value))}
-              />
-              <span className={styles.val}>{settings.size}</span>
-            </label>
-            {settings.mode === "dynamic" && (
-              <>
-                <label className={styles.sliderRow}>
-                  <span>Thinning</span>
-                  <input
-                    type="range"
-                    min={-1}
-                    max={1}
-                    step={0.05}
-                    value={settings.thinning}
-                    onChange={(e) => updateSetting("thinning", Number(e.target.value))}
-                  />
-                  <span className={styles.val}>{settings.thinning.toFixed(2)}</span>
-                </label>
-                <label className={styles.sliderRow}>
-                  <span>Smoothing</span>
-                  <input
-                    type="range"
-                    min={0}
-                    max={1}
-                    step={0.05}
-                    value={settings.smoothing}
-                    onChange={(e) => updateSetting("smoothing", Number(e.target.value))}
-                  />
-                  <span className={styles.val}>{settings.smoothing.toFixed(2)}</span>
-                </label>
-                <label className={styles.sliderRow}>
-                  <span>Streamline</span>
-                  <input
-                    type="range"
-                    min={0}
-                    max={1}
-                    step={0.05}
-                    value={settings.streamline}
-                    onChange={(e) => updateSetting("streamline", Number(e.target.value))}
-                  />
-                  <span className={styles.val}>{settings.streamline.toFixed(2)}</span>
-                </label>
-              </>
-            )}
-          </div>
-        )}
+            );
+          })}
+        </div>
       </div>
 
       <input
@@ -1822,72 +1637,6 @@ export default function Home() {
       />
 
       <div className={styles.body}>
-        <nav className={styles.sidebarRail}>
-          <div className={styles.sidebar}>
-            <div className={styles.sidebarSection}>
-              <button
-                type="button"
-                className={styles.sidebarItem}
-                onClick={handleUndo}
-                disabled={topMode !== "draw" || undoCount === 0}
-                aria-label="Undo"
-                title="Undo"
-              >
-                <Undo2 size={18} strokeWidth={2} className={styles.sidebarIcon} />
-                <span className={styles.sidebarLabel}>Undo</span>
-              </button>
-              <button
-                type="button"
-                className={styles.sidebarItem}
-                onClick={handleRedo}
-                disabled={topMode !== "draw" || redoCount === 0}
-                aria-label="Redo"
-                title="Redo"
-              >
-                <Redo2 size={18} strokeWidth={2} className={styles.sidebarIcon} />
-                <span className={styles.sidebarLabel}>Redo</span>
-              </button>
-            </div>
-            {topMode === "draw" && drawStyle !== "editor" && (
-              <div className={styles.sidebarSection}>
-                <div className={styles.sidebarSectionLabel}>Tools</div>
-                {visibleTools.map((t) => (
-                  <button
-                    key={t.value}
-                    type="button"
-                    className={`${styles.sidebarItem} ${drawTool === t.value ? styles.sidebarItemActive : ""}`}
-                    onClick={() => setDrawTool(t.value)}
-                    aria-label={`${t.label} (${t.shortcut})`}
-                    title={`${t.label} (${t.shortcut})`}
-                  >
-                    <t.icon size={18} strokeWidth={2} className={styles.sidebarIcon} />
-                    <span className={styles.sidebarLabel}>{t.label} ({t.shortcut})</span>
-                  </button>
-                ))}
-              </div>
-            )}
-            <div className={styles.sidebarSection}>
-              <div className={styles.sidebarSectionLabel}>Views</div>
-              {VIEW_DEFS.map((v) => {
-                const active = topMode === v.topMode && (!v.drawStyle || drawStyle === v.drawStyle);
-                return (
-                  <button
-                    key={v.key}
-                    type="button"
-                    className={`${styles.sidebarItem} ${active ? styles.sidebarItemActive : ""}`}
-                    onClick={() => selectView(v)}
-                    aria-label={v.label}
-                    title={v.label}
-                  >
-                    <v.icon size={18} strokeWidth={2} className={styles.sidebarIcon} />
-                    <span className={styles.sidebarLabel}>{v.label}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        </nav>
-
         <main className={styles.main}>
 
       {topMode === "draw" && drawStyle === "free" && drawTool === "assign" && glyphs.length > 0 && (
@@ -1981,6 +1730,257 @@ export default function Home() {
         />
       )}
         </main>
+
+        <aside className={styles.settingsPanel} data-chrome-menu>
+          {topMode === "draw" && drawStyle === "free" && drawTool === "assign" && (
+            <>
+              <input
+                type="text"
+                className={styles.contextField}
+                placeholder={
+                  kindInput === "base" ? "character (e.g. a, é)" : kindInput === "ligature" ? "name (e.g. f_i.liga)" : "name (e.g. a.alt01)"
+                }
+                value={nameInput}
+                onChange={(e) => setNameInput(e.target.value)}
+              />
+              <div className={styles.modeToggle} role="radiogroup" aria-label="Glyph kind">
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={kindInput === "base"}
+                  className={`${styles.modeBtn} ${kindInput === "base" ? styles.modeBtnActive : ""}`}
+                  onClick={() => setKindInput("base")}
+                >
+                  Base
+                </button>
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={kindInput === "ligature"}
+                  className={`${styles.modeBtn} ${kindInput === "ligature" ? styles.modeBtnActive : ""}`}
+                  onClick={() => setKindInput("ligature")}
+                >
+                  Ligature
+                </button>
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={kindInput === "alternate"}
+                  className={`${styles.modeBtn} ${kindInput === "alternate" ? styles.modeBtnActive : ""}`}
+                  onClick={() => setKindInput("alternate")}
+                >
+                  Alternate
+                </button>
+              </div>
+
+              {kindInput === "base" && nameInput.trim() && (
+                <span className={styles.unicodeHint}>{unicodeFor(nameInput.trim()) ?? "not a single character"}</span>
+              )}
+              {kindInput === "ligature" && (
+                <input
+                  type="text"
+                  className={styles.nameInput}
+                  placeholder="components (e.g. f, i)"
+                  value={componentsInput}
+                  onChange={(e) => setComponentsInput(e.target.value)}
+                />
+              )}
+              {kindInput === "alternate" && (
+                <input
+                  type="text"
+                  className={styles.nameInput}
+                  placeholder="alternate of (e.g. a)"
+                  value={alternateOfInput}
+                  onChange={(e) => setAlternateOfInput(e.target.value)}
+                />
+              )}
+
+              <button
+                type="button"
+                className={styles.clearBtn}
+                onClick={handleAssign}
+                disabled={!nameInput.trim() || selectedIds.length === 0}
+              >
+                Assign ({selectedIds.length})
+              </button>
+              <button
+                type="button"
+                className={styles.clearBtn}
+                onClick={() => setSelectedIds([])}
+                disabled={selectedIds.length === 0}
+              >
+                Deselect
+              </button>
+            </>
+          )}
+          {topMode === "draw" && drawStyle === "grid" && (
+            <div className={styles.sliders}>
+              <label className={styles.sliderRow}>
+                <span>Cell size</span>
+                <input
+                  type="range"
+                  min={60}
+                  max={240}
+                  step={10}
+                  value={cellSize}
+                  onChange={(e) => updateCellSize(Number(e.target.value))}
+                />
+                <span className={styles.val}>{cellSize}</span>
+              </label>
+              <label className={styles.sliderRow}>
+                <span>Ascender</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  value={metrics.ascender}
+                  onChange={(e) => updateMetric("ascender", Math.min(Number(e.target.value), metrics.xHeight - 0.02))}
+                />
+                <span className={styles.val}>{metrics.ascender.toFixed(2)}</span>
+              </label>
+              <label className={styles.sliderRow}>
+                <span>X-height</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  value={metrics.xHeight}
+                  onChange={(e) =>
+                    updateMetric(
+                      "xHeight",
+                      Math.min(Math.max(Number(e.target.value), metrics.ascender + 0.02), metrics.baseline - 0.02)
+                    )
+                  }
+                />
+                <span className={styles.val}>{metrics.xHeight.toFixed(2)}</span>
+              </label>
+              <label className={styles.sliderRow}>
+                <span>Baseline</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  value={metrics.baseline}
+                  onChange={(e) =>
+                    updateMetric(
+                      "baseline",
+                      Math.min(Math.max(Number(e.target.value), metrics.xHeight + 0.02), metrics.descender - 0.02)
+                    )
+                  }
+                />
+                <span className={styles.val}>{metrics.baseline.toFixed(2)}</span>
+              </label>
+              <label className={styles.sliderRow}>
+                <span>Descender</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  value={metrics.descender}
+                  onChange={(e) => updateMetric("descender", Math.max(Number(e.target.value), metrics.baseline + 0.02))}
+                />
+                <span className={styles.val}>{metrics.descender.toFixed(2)}</span>
+              </label>
+            </div>
+          )}
+          {topMode === "draw" && drawStyle === "free" && (
+            <div className={styles.sliders}>
+              <label className={styles.sliderRow}>
+                <span>Line spacing</span>
+                <input
+                  type="range"
+                  min={20}
+                  max={300}
+                  step={5}
+                  value={lineSpacing}
+                  onChange={(e) => updateLineSpacing(Number(e.target.value))}
+                />
+                <span className={styles.val}>{lineSpacing}</span>
+              </label>
+            </div>
+          )}
+
+          {showStrokeControls && (
+            <div className={styles.sliders}>
+              <div className={styles.modeToggle} role="radiogroup" aria-label="Stroke mode">
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={settings.mode === "mono"}
+                  className={`${styles.modeBtn} ${settings.mode === "mono" ? styles.modeBtnActive : ""}`}
+                  onClick={() => updateSetting("mode", "mono")}
+                >
+                  Mono line
+                </button>
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={settings.mode === "dynamic"}
+                  className={`${styles.modeBtn} ${settings.mode === "dynamic" ? styles.modeBtnActive : ""}`}
+                  onClick={() => updateSetting("mode", "dynamic")}
+                >
+                  Dynamic
+                </button>
+              </div>
+              <label className={styles.sliderRow}>
+                <span>Size</span>
+                <input
+                  type="range"
+                  min={4}
+                  max={60}
+                  step={1}
+                  value={settings.size}
+                  onChange={(e) => updateSetting("size", Number(e.target.value))}
+                />
+                <span className={styles.val}>{settings.size}</span>
+              </label>
+              {settings.mode === "dynamic" && (
+                <>
+                  <label className={styles.sliderRow}>
+                    <span>Thinning</span>
+                    <input
+                      type="range"
+                      min={-1}
+                      max={1}
+                      step={0.05}
+                      value={settings.thinning}
+                      onChange={(e) => updateSetting("thinning", Number(e.target.value))}
+                    />
+                    <span className={styles.val}>{settings.thinning.toFixed(2)}</span>
+                  </label>
+                  <label className={styles.sliderRow}>
+                    <span>Smoothing</span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={1}
+                      step={0.05}
+                      value={settings.smoothing}
+                      onChange={(e) => updateSetting("smoothing", Number(e.target.value))}
+                    />
+                    <span className={styles.val}>{settings.smoothing.toFixed(2)}</span>
+                  </label>
+                  <label className={styles.sliderRow}>
+                    <span>Streamline</span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={1}
+                      step={0.05}
+                      value={settings.streamline}
+                      onChange={(e) => updateSetting("streamline", Number(e.target.value))}
+                    />
+                    <span className={styles.val}>{settings.streamline.toFixed(2)}</span>
+                  </label>
+                </>
+              )}
+            </div>
+          )}
+        </aside>
       </div>
 
       {topMode === "draw" && (

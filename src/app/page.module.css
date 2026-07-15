@@ -125,14 +125,61 @@
   font-weight: 700;
 }
 
-.contextBar {
+.toolsViewsBar {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: var(--sp-sm) var(--sp-lg);
+  gap: var(--sp-lg);
   padding: var(--sp-sm) var(--sp-lg);
   border-bottom: 1px solid var(--color-cappuccino);
-  position: relative;
+}
+
+.hBarGroup {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.hBarLabel {
+  font-family: var(--font-sans);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+  margin-right: var(--sp-xs);
+}
+
+.hBarItem {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-xs);
+  padding: var(--sp-xs) var(--sp-sm);
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  color: var(--color-text);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.hBarItem:hover {
+  background: var(--color-cappuccino);
+}
+
+.hBarItem:disabled {
+  opacity: .4;
+  cursor: not-allowed;
+}
+
+.hBarItem:disabled:hover {
+  background: none;
+}
+
+.hBarItemActive {
+  background: var(--color-blueberry);
+  color: var(--color-vanilla);
 }
 
 .contextField {
@@ -185,97 +232,83 @@
   overflow: hidden;
 }
 
-.sidebarRail {
-  position: relative;
-  width: 60px;
+.settingsPanel {
+  width: 280px;
   flex-shrink: 0;
-}
-
-.sidebar {
-  position: absolute;
-  inset: 0;
-  width: 60px;
-  overflow: hidden;
   display: flex;
   flex-direction: column;
-  gap: var(--sp-md);
-  padding: var(--sp-md) 0;
-  background: var(--color-vanilla);
-  border-right: 1px solid var(--color-cappuccino);
-  transition: width 160ms ease;
-  z-index: 15;
-}
-
-.sidebarRail:hover .sidebar,
-.sidebar:focus-within {
-  width: 123px;
-  box-shadow: 2px 0 8px rgba(31, 25, 52, 0.15);
-}
-
-.sidebarSection {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-
-.sidebarSectionLabel {
-  font-family: var(--font-sans);
-  font-size: 10px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--color-muted);
-  padding: 0 var(--sp-md) var(--sp-xs);
-  white-space: nowrap;
-}
-
-.sidebarItem {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-sm);
-  padding: var(--sp-sm) var(--sp-md);
-  border: 0;
-  background: none;
-  color: var(--color-text);
-  cursor: pointer;
-  width: 100%;
-  min-width: 0;
-  overflow: hidden;
-}
-
-.sidebarItem:hover {
-  background: var(--color-cappuccino);
-}
-
-.sidebarItem:disabled {
-  opacity: .4;
-  cursor: not-allowed;
-}
-
-.sidebarItem:disabled:hover {
-  background: none;
-}
-
-.sidebarItemActive {
+  gap: var(--sp-lg);
+  padding: var(--sp-lg);
+  overflow-y: auto;
   background: var(--color-blueberry);
+  color: var(--color-vanilla);
+  border-left: 1px solid var(--color-blueberry);
+}
+
+.settingsPanel .sliders {
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: var(--sp-sm);
+}
+
+.settingsPanel .sliderRow {
+  color: var(--color-vanilla);
+  opacity: 0.85;
+}
+
+.settingsPanel .sliderRow .val {
+  color: var(--color-vanilla);
+  opacity: 1;
+}
+
+.settingsPanel .sliderRow input[type="range"] {
+  width: auto;
+  flex: 1;
+}
+
+.settingsPanel .modeToggle {
+  border-color: var(--color-vanilla);
+}
+
+.settingsPanel .modeBtn {
+  background: transparent;
   color: var(--color-vanilla);
 }
 
-.sidebarIcon {
-  flex-shrink: 0;
+.settingsPanel .modeBtn + .modeBtn {
+  border-left-color: var(--color-vanilla);
 }
 
-.sidebarLabel {
-  font-family: var(--font-sans);
-  font-size: 12px;
-  white-space: nowrap;
-  opacity: 0;
-  transition: opacity 100ms ease;
+.settingsPanel .modeBtnActive {
+  background: var(--color-vanilla);
+  color: var(--color-blueberry);
 }
 
-.sidebarRail:hover .sidebarLabel,
-.sidebar:focus-within .sidebarLabel {
-  opacity: 1;
+.settingsPanel .clearBtn {
+  border-color: var(--color-vanilla);
+  background: transparent;
+  color: var(--color-vanilla);
+}
+
+.settingsPanel .clearBtn:hover {
+  background: var(--color-lemon);
+  color: var(--color-blueberry);
+}
+
+.settingsPanel .contextField,
+.settingsPanel .nameInput {
+  background: rgba(234, 232, 224, 0.08); /* vanilla, translucent */
+  border-color: rgba(234, 232, 224, 0.3);
+  color: var(--color-vanilla);
+}
+
+.settingsPanel .contextField::placeholder,
+.settingsPanel .nameInput::placeholder {
+  color: rgba(234, 232, 224, 0.5);
+}
+
+.settingsPanel .unicodeHint {
+  color: rgba(234, 232, 224, 0.7);
 }
 
 .main {
@@ -346,15 +379,6 @@
 
 .clearBtn:disabled:hover {
   background: var(--color-vanilla);
-}
-
-.toolbar {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: var(--sp-lg);
-  padding: var(--sp-sm) var(--sp-lg);
-  border-bottom: 1px solid var(--color-cappuccino);
 }
 
 .modeToggle {
