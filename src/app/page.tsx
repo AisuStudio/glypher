@@ -262,16 +262,30 @@ const CELL_ASPECT_RATIO = 16 / 9;
 // slider. (An earlier version reused Grid View's Ascender/X-height/Baseline/
 // Descender guides here, but four differently-styled lines per row read as
 // confusing when there's no per-glyph cell to anchor them to.)
-function drawLineRaster(ctx: CanvasRenderingContext2D, width: number, height: number, spacing: number) {
+function drawLineRaster(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  spacing: number,
+  panX: number,
+  panY: number
+) {
   if (spacing <= 0) return;
   ctx.save();
   ctx.lineWidth = 1;
   ctx.strokeStyle = SKELETON_GUIDE_COLOR;
   ctx.beginPath();
-  for (let y = spacing; y < height; y += spacing) {
+  // Lines are drawn in the already ctx.translate(panX, panY)'d space (see
+  // redraw()), so the on-screen viewport actually spans local y from -panY
+  // to height - panY — not [0, height] — once the user has panned. Looping
+  // over the untranslated canvas rect left the raster behind after a big
+  // enough pan; this keeps it tiled across whatever's actually visible.
+  const firstY = Math.floor(-panY / spacing) * spacing;
+  const lastY = height - panY;
+  for (let y = firstY; y <= lastY; y += spacing) {
     const ly = Math.round(y) + 0.5;
-    ctx.moveTo(0, ly);
-    ctx.lineTo(width, ly);
+    ctx.moveTo(-panX, ly);
+    ctx.lineTo(width - panX, ly);
   }
   ctx.stroke();
   ctx.restore();
@@ -505,7 +519,14 @@ export default function Home() {
       // spatial reference instead of content sliding under a static grid.
       ctx.save();
       ctx.translate(panOffsetRef.current.x, panOffsetRef.current.y);
-      drawLineRaster(ctx, canvas.clientWidth, canvas.clientHeight, lineSpacingRef.current);
+      drawLineRaster(
+        ctx,
+        canvas.clientWidth,
+        canvas.clientHeight,
+        lineSpacingRef.current,
+        panOffsetRef.current.x,
+        panOffsetRef.current.y
+      );
       const strokes = completedRef.current;
       const outlines = outlinesRef.current;
       for (let i = 0; i < strokes.length; i++) {
@@ -1511,31 +1532,38 @@ export default function Home() {
             </div>
           )}
         </div>
+
+        {topMode === "draw" && drawStyle === "grid" && (
+          <div
+            className={styles.menuItem}
+            data-chrome-menu
+            onMouseEnter={() => openMenuOnHover("charset")}
+            onMouseLeave={scheduleMenuHoverClose}
+          >
+            <button
+              type="button"
+              className={styles.menuTrigger}
+              aria-haspopup="menu"
+              aria-expanded={openMenu === "charset"}
+              onClick={() => setOpenMenu((m) => (m === "charset" ? null : "charset"))}
+            >
+              Character sets ({activeSetIds.size}) <ChevronDown size={12} strokeWidth={2} />
+            </button>
+            {openMenu === "charset" && (
+              <div className={styles.dropdown} role="menu">
+                {CHARACTER_SETS.map((set) => (
+                  <label key={set.id} className={styles.charsetOption}>
+                    <input type="checkbox" checked={activeSetIds.has(set.id)} onChange={() => toggleCharacterSet(set.id)} />
+                    {set.label}
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       <div className={styles.contextBar} data-chrome-menu>
-        <div className={styles.undoRedo}>
-          <button
-            type="button"
-            className={`${styles.clearBtn} ${styles.iconOnlyBtn}`}
-            onClick={handleUndo}
-            disabled={topMode !== "draw" || undoCount === 0}
-            aria-label="Undo"
-            title="Undo"
-          >
-            <Undo2 size={16} strokeWidth={2} />
-          </button>
-          <button
-            type="button"
-            className={`${styles.clearBtn} ${styles.iconOnlyBtn}`}
-            onClick={handleRedo}
-            disabled={topMode !== "draw" || redoCount === 0}
-            aria-label="Redo"
-            title="Redo"
-          >
-            <Redo2 size={16} strokeWidth={2} />
-          </button>
-        </div>
         {topMode === "draw" && drawStyle === "free" && drawTool === "assign" && (
           <>
             <input
@@ -1616,42 +1644,6 @@ export default function Home() {
               Deselect
             </button>
           </>
-        )}
-        {topMode === "draw" && drawStyle === "grid" && (
-          <label className={styles.contextFieldLabeled}>
-            <span>Dimension</span>
-            <input
-              type="number"
-              min={60}
-              max={240}
-              step={10}
-              value={cellSize}
-              onChange={(e) => updateCellSize(Number(e.target.value))}
-            />
-          </label>
-        )}
-        {topMode === "draw" && drawStyle === "grid" && (
-          <div className={styles.menuItem} data-chrome-menu>
-            <button
-              type="button"
-              className={styles.menuTrigger}
-              aria-haspopup="menu"
-              aria-expanded={openMenu === "charset"}
-              onClick={() => setOpenMenu((m) => (m === "charset" ? null : "charset"))}
-            >
-              Character sets ({activeSetIds.size}) <ChevronDown size={12} strokeWidth={2} />
-            </button>
-            {openMenu === "charset" && (
-              <div className={styles.dropdown} role="menu">
-                {CHARACTER_SETS.map((set) => (
-                  <label key={set.id} className={styles.charsetOption}>
-                    <input type="checkbox" checked={activeSetIds.has(set.id)} onChange={() => toggleCharacterSet(set.id)} />
-                    {set.label}
-                  </label>
-                ))}
-              </div>
-            )}
-          </div>
         )}
         {topMode === "draw" && drawStyle === "grid" && (
           <div className={styles.sliders}>
@@ -1745,7 +1737,7 @@ export default function Home() {
         )}
 
         {showStrokeControls && (
-          <>
+          <div className={styles.sliders}>
             <div className={styles.modeToggle} role="radiogroup" aria-label="Stroke mode">
               <button
                 type="button"
@@ -1766,62 +1758,59 @@ export default function Home() {
                 Dynamic
               </button>
             </div>
-
-            <div className={styles.sliders}>
-              <label className={styles.sliderRow}>
-                <span>Size</span>
-                <input
-                  type="range"
-                  min={4}
-                  max={60}
-                  step={1}
-                  value={settings.size}
-                  onChange={(e) => updateSetting("size", Number(e.target.value))}
-                />
-                <span className={styles.val}>{settings.size}</span>
-              </label>
-              {settings.mode === "dynamic" && (
-                <>
-                  <label className={styles.sliderRow}>
-                    <span>Thinning</span>
-                    <input
-                      type="range"
-                      min={-1}
-                      max={1}
-                      step={0.05}
-                      value={settings.thinning}
-                      onChange={(e) => updateSetting("thinning", Number(e.target.value))}
-                    />
-                    <span className={styles.val}>{settings.thinning.toFixed(2)}</span>
-                  </label>
-                  <label className={styles.sliderRow}>
-                    <span>Smoothing</span>
-                    <input
-                      type="range"
-                      min={0}
-                      max={1}
-                      step={0.05}
-                      value={settings.smoothing}
-                      onChange={(e) => updateSetting("smoothing", Number(e.target.value))}
-                    />
-                    <span className={styles.val}>{settings.smoothing.toFixed(2)}</span>
-                  </label>
-                  <label className={styles.sliderRow}>
-                    <span>Streamline</span>
-                    <input
-                      type="range"
-                      min={0}
-                      max={1}
-                      step={0.05}
-                      value={settings.streamline}
-                      onChange={(e) => updateSetting("streamline", Number(e.target.value))}
-                    />
-                    <span className={styles.val}>{settings.streamline.toFixed(2)}</span>
-                  </label>
-                </>
-              )}
-            </div>
-          </>
+            <label className={styles.sliderRow}>
+              <span>Size</span>
+              <input
+                type="range"
+                min={4}
+                max={60}
+                step={1}
+                value={settings.size}
+                onChange={(e) => updateSetting("size", Number(e.target.value))}
+              />
+              <span className={styles.val}>{settings.size}</span>
+            </label>
+            {settings.mode === "dynamic" && (
+              <>
+                <label className={styles.sliderRow}>
+                  <span>Thinning</span>
+                  <input
+                    type="range"
+                    min={-1}
+                    max={1}
+                    step={0.05}
+                    value={settings.thinning}
+                    onChange={(e) => updateSetting("thinning", Number(e.target.value))}
+                  />
+                  <span className={styles.val}>{settings.thinning.toFixed(2)}</span>
+                </label>
+                <label className={styles.sliderRow}>
+                  <span>Smoothing</span>
+                  <input
+                    type="range"
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    value={settings.smoothing}
+                    onChange={(e) => updateSetting("smoothing", Number(e.target.value))}
+                  />
+                  <span className={styles.val}>{settings.smoothing.toFixed(2)}</span>
+                </label>
+                <label className={styles.sliderRow}>
+                  <span>Streamline</span>
+                  <input
+                    type="range"
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    value={settings.streamline}
+                    onChange={(e) => updateSetting("streamline", Number(e.target.value))}
+                  />
+                  <span className={styles.val}>{settings.streamline.toFixed(2)}</span>
+                </label>
+              </>
+            )}
+          </div>
         )}
       </div>
 
@@ -1836,6 +1825,30 @@ export default function Home() {
       <div className={styles.body}>
         <nav className={styles.sidebarRail}>
           <div className={styles.sidebar}>
+            <div className={styles.sidebarSection}>
+              <button
+                type="button"
+                className={styles.sidebarItem}
+                onClick={handleUndo}
+                disabled={topMode !== "draw" || undoCount === 0}
+                aria-label="Undo"
+                title="Undo"
+              >
+                <Undo2 size={18} strokeWidth={2} className={styles.sidebarIcon} />
+                <span className={styles.sidebarLabel}>Undo</span>
+              </button>
+              <button
+                type="button"
+                className={styles.sidebarItem}
+                onClick={handleRedo}
+                disabled={topMode !== "draw" || redoCount === 0}
+                aria-label="Redo"
+                title="Redo"
+              >
+                <Redo2 size={18} strokeWidth={2} className={styles.sidebarIcon} />
+                <span className={styles.sidebarLabel}>Redo</span>
+              </button>
+            </div>
             {topMode === "draw" && drawStyle !== "editor" && (
               <div className={styles.sidebarSection}>
                 <div className={styles.sidebarSectionLabel}>Tools</div>

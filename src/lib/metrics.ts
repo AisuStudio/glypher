@@ -11,7 +11,7 @@ export type Metrics = {
 
 export const DEFAULT_METRICS: Metrics = {
   ascender: 0.15,
-  xHeight: 0.45,
+  xHeight: 0.4,
   baseline: 0.75,
   descender: 0.95,
 };

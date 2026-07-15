@@ -247,6 +247,15 @@
   background: var(--color-cappuccino);
 }
 
+.sidebarItem:disabled {
+  opacity: .4;
+  cursor: not-allowed;
+}
+
+.sidebarItem:disabled:hover {
+  background: none;
+}
+
 .sidebarItemActive {
   background: var(--color-blueberry);
   color: var(--color-vanilla);
@@ -375,19 +384,6 @@
 .modeBtnActive {
   background: var(--color-blueberry);
   color: var(--color-vanilla);
-}
-
-.undoRedo {
-  display: flex;
-  gap: var(--sp-sm);
-  flex-shrink: 0;
-}
-
-.iconOnlyBtn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: var(--sp-sm);
 }
 
 .sliders {
