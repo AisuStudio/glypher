@@ -302,7 +302,7 @@ export default function Home() {
 
   // Menu bar dropdown (Glypher/File/Edit/View/Tools) — dismissed by the
   // outside-click listener below.
-  const [openMenu, setOpenMenu] = useState<"glypher" | "file" | "edit" | "view" | "tools" | null>(null);
+  const [openMenu, setOpenMenu] = useState<"glypher" | "file" | "edit" | "view" | "tools" | "charset" | null>(null);
   // Info/How-to modal, opened from the Glypher menu — a plain overlay
   // rather than another dropdown, since this content is paragraph-length,
   // not a short action list.
@@ -1503,13 +1503,26 @@ export default function Home() {
         )}
         {topMode === "draw" && drawStyle === "grid" && (
           <>
-            <div className={styles.charsetToggle}>
-              {CHARACTER_SETS.map((set) => (
-                <label key={set.id} className={styles.charsetOption}>
-                  <input type="checkbox" checked={activeSetIds.has(set.id)} onChange={() => toggleCharacterSet(set.id)} />
-                  {set.label}
-                </label>
-              ))}
+            <div className={styles.menuItem} data-chrome-menu>
+              <button
+                type="button"
+                className={styles.menuTrigger}
+                aria-haspopup="menu"
+                aria-expanded={openMenu === "charset"}
+                onClick={() => setOpenMenu((m) => (m === "charset" ? null : "charset"))}
+              >
+                Character sets ({activeSetIds.size}) <ChevronDown size={12} strokeWidth={2} />
+              </button>
+              {openMenu === "charset" && (
+                <div className={styles.dropdown} role="menu">
+                  {CHARACTER_SETS.map((set) => (
+                    <label key={set.id} className={styles.charsetOption}>
+                      <input type="checkbox" checked={activeSetIds.has(set.id)} onChange={() => toggleCharacterSet(set.id)} />
+                      {set.label}
+                    </label>
+                  ))}
+                </div>
+              )}
             </div>
             <div className={styles.sliders}>
               <label className={styles.sliderRow}>
