@@ -404,30 +404,36 @@
 .sliders {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--sp-lg);
-  flex: 1;
+  gap: var(--sp-sm) var(--sp-md);
+  /* NOT flex:1 — the context bar can render two .sliders groups side by
+     side (Grid metrics + stroke settings) on the same wrapped line; with
+     flex:1 they'd split the remaining width 50/50 regardless of how many
+     rows each actually needs, squeezing both into a narrow column instead
+     of laying their own rows out horizontally. flex-basis:auto lets each
+     size to its own content and wrap independently. */
+  flex: 0 1 auto;
 }
 
 .sliderRow {
   display: flex;
   align-items: center;
-  gap: var(--sp-sm);
+  gap: var(--sp-xs);
   font-family: var(--font-mono);
   font-size: 12px;
   color: var(--color-muted);
 }
 
 .sliderRow span:first-child {
-  min-width: 66px;
+  min-width: 52px;
 }
 
 .sliderRow input[type="range"] {
-  width: 110px;
+  width: 70px;
   accent-color: var(--color-grape);
 }
 
 .sliderRow .val {
-  min-width: 34px;
+  min-width: 28px;
   color: var(--color-text);
   text-align: right;
 }
