@@ -17,7 +17,7 @@ import { downloadProjectFile, parseProjectFile, applyProjectFile } from "@/lib/p
 import {
   Undo2,
   Redo2,
-  PenTool,
+  Brush,
   Eraser,
   LineSquiggle,
   Grid3x3,
@@ -79,9 +79,9 @@ const FREE_ONLY_TOOLS = new Set<DrawTool>(["assign", "pan"]);
 
 // Single source of truth for the sidebar's TOOLS section and the menu bar's
 // Tools dropdown, so the two can't drift out of sync with each other.
-type ToolDef = { value: DrawTool; label: string; icon: typeof PenTool };
+type ToolDef = { value: DrawTool; label: string; icon: typeof Brush };
 const TOOL_DEFS: ToolDef[] = [
-  { value: "pen", label: "Draw", icon: PenTool },
+  { value: "pen", label: "Draw", icon: Brush },
   { value: "eraser", label: "Erase", icon: Eraser },
   { value: "select", label: "Select", icon: MousePointer2 },
   { value: "nudge", label: "Nudge", icon: SplinePointer },
@@ -95,7 +95,7 @@ const TOOL_DEFS: ToolDef[] = [
 // Same idea for the sidebar's VIEWS section and the menu bar's View dropdown
 // — a flat list synthesized across the two underlying state variables
 // (topMode/drawStyle) that "which view is active" actually spans.
-type ViewDef = { key: string; label: string; icon: typeof PenTool; topMode: TopMode; drawStyle?: DrawStyle };
+type ViewDef = { key: string; label: string; icon: typeof Brush; topMode: TopMode; drawStyle?: DrawStyle };
 // Animate is deliberately left out of this list — not far enough along yet
 // to expose in the nav — but topMode==="animate" and AnimatePanel itself are
 // untouched, so re-adding a { key: "animate", ... } entry here is all it'll
