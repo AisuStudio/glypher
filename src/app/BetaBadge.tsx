@@ -7,7 +7,7 @@ export default function BetaBadge() {
     <div className={styles.betaBadge} aria-hidden>
       <span className={styles.betaLabel}>We&rsquo;re still in</span>
       <div className={styles.betaRibbon}>
-        <svg viewBox="0 0 132 56" width="90" height="38" style={{ position: "absolute", inset: 0 }}>
+        <svg viewBox="0 0 132 56" width="64" height="27" style={{ position: "absolute", inset: 0 }}>
           <path
             d="M3 3 Q66 16 129 3 L129 53 Q66 40 3 53 Z"
             fill="none"
