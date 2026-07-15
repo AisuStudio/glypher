@@ -22,7 +22,6 @@ import {
   LineSquiggle,
   Grid3x3,
   BookA,
-  Download,
   SplinePointer,
   NotebookPen,
   Lasso,
@@ -42,7 +41,7 @@ import { DEFAULT_PRESET_ID, type AnimationPresetId } from "@/lib/animationPreset
 // Draw has three styles: Free (the old "Write" freeform canvas), Grid (one
 // glyph per cell), and Editor (compose/preview text using already-tagged
 // glyphs — no drawing of its own yet).
-type TopMode = "draw" | "animate" | "export";
+type TopMode = "draw" | "animate";
 type DrawStyle = "free" | "grid" | "editor";
 // Nudge and Assign only ever apply to Free — reshaping a Grid cell's
 // single-letter stroke via anchors, or lasso-tagging a stroke to a glyph,
@@ -100,12 +99,14 @@ type ViewDef = { key: string; label: string; icon: typeof Brush; topMode: TopMod
 // Animate is deliberately left out of this list — not far enough along yet
 // to expose in the nav — but topMode==="animate" and AnimatePanel itself are
 // untouched, so re-adding a { key: "animate", ... } entry here is all it'll
-// take to bring it back.
+// take to bring it back. Export isn't a view either: it has no view of its
+// own to switch into (File's Export GFF/JSON/OTF/Skeleton SVG actions cover
+// the whole surface already) — it used to be a JSON-preview panel, but that
+// duplicated what File already does and confused "view" with "action".
 const VIEW_DEFS: ViewDef[] = [
   { key: "free", label: "Free", icon: LineSquiggle, topMode: "draw", drawStyle: "free" },
   { key: "grid", label: "Grid", icon: Grid3x3, topMode: "draw", drawStyle: "grid" },
   { key: "editor", label: "Editor", icon: NotebookPen, topMode: "draw", drawStyle: "editor" },
-  { key: "export", label: "Export", icon: Download, topMode: "export" },
 ];
 
 const COLOR_DEFAULT = "#1f1934"; // blueberry — untagged
@@ -253,47 +254,24 @@ function compileDocument(glyphs: Glyph[], strokes: Stroke[], settings: StrokeSet
 }
 
 // Grid View's cells use a fixed 16:9 height-to-cellSize ratio (see the
-// cellHeightPx computation below) — shared here so Free mode's type-guide
-// raster repeats at the same row height instead of drifting out of sync.
+// cellHeightPx computation below).
 const CELL_ASPECT_RATIO = 16 / 9;
 
-// Same idea as GridCell's drawGuides, but tiled down the whole canvas as
-// repeating rows (instead of once per cell) — Free mode has no discrete
-// cells, so the row height stands in for "one line of text" at the current
-// Cell size, keeping proportions consistent with Grid mode.
-function drawTypeGuideRows(
-  ctx: CanvasRenderingContext2D,
-  width: number,
-  height: number,
-  metrics: Metrics,
-  rowHeight: number
-) {
-  if (rowHeight <= 0) return;
+// Free mode's background: plain, evenly-spaced ruled lines, not tied to any
+// glyph metrics — just a spatial reference the user can space out via one
+// slider. (An earlier version reused Grid View's Ascender/X-height/Baseline/
+// Descender guides here, but four differently-styled lines per row read as
+// confusing when there's no per-glyph cell to anchor them to.)
+function drawLineRaster(ctx: CanvasRenderingContext2D, width: number, height: number, spacing: number) {
+  if (spacing <= 0) return;
   ctx.save();
-  ctx.lineWidth = 0.5;
+  ctx.lineWidth = 1;
   ctx.strokeStyle = SKELETON_GUIDE_COLOR;
-
-  ctx.setLineDash([3, 3]);
   ctx.beginPath();
-  for (let rowTop = 0; rowTop < height + rowHeight; rowTop += rowHeight) {
-    const ascY = Math.round(rowTop + metrics.ascender * rowHeight) + 0.5;
-    const xHeightY = Math.round(rowTop + metrics.xHeight * rowHeight) + 0.5;
-    const descY = Math.round(rowTop + metrics.descender * rowHeight) + 0.5;
-    ctx.moveTo(0, ascY);
-    ctx.lineTo(width, ascY);
-    ctx.moveTo(0, xHeightY);
-    ctx.lineTo(width, xHeightY);
-    ctx.moveTo(0, descY);
-    ctx.lineTo(width, descY);
-  }
-  ctx.stroke();
-
-  ctx.setLineDash([]);
-  ctx.beginPath();
-  for (let rowTop = 0; rowTop < height + rowHeight; rowTop += rowHeight) {
-    const baseY = Math.round(rowTop + metrics.baseline * rowHeight) + 0.5;
-    ctx.moveTo(0, baseY);
-    ctx.lineTo(width, baseY);
+  for (let y = spacing; y < height; y += spacing) {
+    const ly = Math.round(y) + 0.5;
+    ctx.moveTo(0, ly);
+    ctx.lineTo(width, ly);
   }
   ctx.stroke();
   ctx.restore();
@@ -377,6 +355,19 @@ export default function Home() {
   function updateCellSize(size: number) {
     setCellSize(size);
     window.localStorage.setItem("glypher.cellSize.v1", String(size));
+  }
+
+  // Free mode's ruled-line background — independent of Grid View's cellSize,
+  // since the two rasters serve different purposes (a plain spatial
+  // reference vs. per-glyph type metrics).
+  const [lineSpacing, setLineSpacing] = useState(() => {
+    if (typeof window === "undefined") return 75;
+    return Number(window.localStorage.getItem("glypher.lineSpacing.v1")) || 75;
+  });
+
+  function updateLineSpacing(spacing: number) {
+    setLineSpacing(spacing);
+    window.localStorage.setItem("glypher.lineSpacing.v1", String(spacing));
   }
 
   const [editorText, setEditorText] = useState(() => {
@@ -471,11 +462,10 @@ export default function Home() {
 
   const [settings, setSettings] = useState<StrokeSettings>(() => loadSettings());
   const settingsRef = useRef(settings);
-  // Drive Free mode's type-guide raster (see drawTypeGuideRows) — refs, not
-  // direct state reads, since the redraw() that consumes them lives inside
+  // Drives Free mode's line raster (see drawLineRaster) — a ref, not a
+  // direct state read, since the redraw() that consumes it lives inside
   // the mount-once pointer-handling effect below.
-  const metricsRef = useRef(metrics);
-  const cellSizeRef = useRef(cellSize);
+  const lineSpacingRef = useRef(lineSpacing);
 
   // Lazy initializer, not useEffect + setGlyphs([]) then load: starting from an empty
   // array and loading afterward would let the save-on-change effect below fire once
@@ -515,13 +505,7 @@ export default function Home() {
       // spatial reference instead of content sliding under a static grid.
       ctx.save();
       ctx.translate(panOffsetRef.current.x, panOffsetRef.current.y);
-      drawTypeGuideRows(
-        ctx,
-        canvas.clientWidth,
-        canvas.clientHeight,
-        metricsRef.current,
-        cellSizeRef.current * CELL_ASPECT_RATIO
-      );
+      drawLineRaster(ctx, canvas.clientWidth, canvas.clientHeight, lineSpacingRef.current);
       const strokes = completedRef.current;
       const outlines = outlinesRef.current;
       for (let i = 0; i < strokes.length; i++) {
@@ -802,17 +786,11 @@ export default function Home() {
     drawStyleRef.current = drawStyle;
   }, [drawStyle]);
 
-  // Keep Free mode's type-guide raster in sync whenever the metrics that
-  // define it (or the row height they're stretched across) change.
+  // Keep Free mode's line raster in sync whenever its spacing changes.
   useEffect(() => {
-    metricsRef.current = metrics;
+    lineSpacingRef.current = lineSpacing;
     redrawRef.current();
-  }, [metrics]);
-
-  useEffect(() => {
-    cellSizeRef.current = cellSize;
-    redrawRef.current();
-  }, [cellSize]);
+  }, [lineSpacing]);
 
   useEffect(() => {
     topModeRef.current = topMode;
@@ -874,12 +852,14 @@ export default function Home() {
     redrawRef.current();
   }, [glyphs]);
 
+  // Recompiled on every relevant change (not gated on any particular view
+  // being open) — File > Export JSON/OTF read exportJson/exportDoc directly,
+  // so they need to stay current regardless of which view the user is on.
   useEffect(() => {
-    if (topMode !== "export") return;
     const doc = compileDocument(glyphs, completedRef.current, settings, metrics);
     setExportJson(JSON.stringify(doc, null, 2));
     setExportDoc(doc);
-  }, [topMode, glyphs, settings, metrics]);
+  }, [glyphs, settings, metrics]);
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -1637,7 +1617,7 @@ export default function Home() {
             </button>
           </>
         )}
-        {topMode === "draw" && (drawStyle === "grid" || drawStyle === "free") && (
+        {topMode === "draw" && drawStyle === "grid" && (
           <label className={styles.contextFieldLabeled}>
             <span>Dimension</span>
             <input
@@ -1673,7 +1653,7 @@ export default function Home() {
             )}
           </div>
         )}
-        {topMode === "draw" && (drawStyle === "grid" || drawStyle === "free") && (
+        {topMode === "draw" && drawStyle === "grid" && (
           <div className={styles.sliders}>
             <label className={styles.sliderRow}>
               <span>Cell size</span>
@@ -1744,6 +1724,22 @@ export default function Home() {
                 onChange={(e) => updateMetric("descender", Math.max(Number(e.target.value), metrics.baseline + 0.02))}
               />
               <span className={styles.val}>{metrics.descender.toFixed(2)}</span>
+            </label>
+          </div>
+        )}
+        {topMode === "draw" && drawStyle === "free" && (
+          <div className={styles.sliders}>
+            <label className={styles.sliderRow}>
+              <span>Line spacing</span>
+              <input
+                type="range"
+                min={20}
+                max={300}
+                step={5}
+                value={lineSpacing}
+                onChange={(e) => updateLineSpacing(Number(e.target.value))}
+              />
+              <span className={styles.val}>{lineSpacing}</span>
             </label>
           </div>
         )}
@@ -1837,31 +1833,6 @@ export default function Home() {
         style={{ display: "none" }}
       />
 
-      {topMode === "draw" && (
-        <div className={styles.statusBar}>
-          <span className={styles.hudItem}>
-            <span className={styles.hudLabel}>mode</span>
-            {drawStyle === "free" ? "Free" : drawStyle === "grid" ? "Grid" : "Editor"}
-          </span>
-          <span className={styles.hudItem}>
-            <span className={styles.hudLabel}>pointerType</span>
-            {hud.pointerType}
-          </span>
-          <span className={styles.hudItem}>
-            <span className={styles.hudLabel}>pressure</span>
-            {hud.pressure.toFixed(2)}
-          </span>
-          <span className={styles.hudItem}>
-            <span className={styles.hudLabel}>x, y</span>
-            {hud.x}, {hud.y}
-          </span>
-          <span className={styles.hudItem}>
-            <span className={styles.hudLabel}>strokesSaved</span>
-            {strokeCount}
-          </span>
-        </div>
-      )}
-
       <div className={styles.body}>
         <nav className={styles.sidebarRail}>
           <div className={styles.sidebar}>
@@ -1906,11 +1877,6 @@ export default function Home() {
         </nav>
 
         <main className={styles.main}>
-      {topMode === "export" && (
-        <section className={styles.exportPanel}>
-          <textarea className={styles.exportOutput} readOnly rows={20} value={exportJson} />
-        </section>
-      )}
 
       {topMode === "draw" && drawStyle === "free" && drawTool === "assign" && glyphs.length > 0 && (
         <ul className={styles.glyphList}>
@@ -2004,6 +1970,31 @@ export default function Home() {
       )}
         </main>
       </div>
+
+      {topMode === "draw" && (
+        <div className={styles.statusBar}>
+          <span className={styles.hudItem}>
+            <span className={styles.hudLabel}>mode</span>
+            {drawStyle === "free" ? "Free" : drawStyle === "grid" ? "Grid" : "Editor"}
+          </span>
+          <span className={styles.hudItem}>
+            <span className={styles.hudLabel}>pointerType</span>
+            {hud.pointerType}
+          </span>
+          <span className={styles.hudItem}>
+            <span className={styles.hudLabel}>pressure</span>
+            {hud.pressure.toFixed(2)}
+          </span>
+          <span className={styles.hudItem}>
+            <span className={styles.hudLabel}>x, y</span>
+            {hud.x}, {hud.y}
+          </span>
+          <span className={styles.hudItem}>
+            <span className={styles.hudLabel}>strokesSaved</span>
+            {strokeCount}
+          </span>
+        </div>
+      )}
 
       {infoModal && (
         <div className={styles.modalBackdrop} onClick={() => setInfoModal(null)}>
