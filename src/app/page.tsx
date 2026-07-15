@@ -1829,8 +1829,6 @@ export default function Home() {
         )}
       </div>
 
-      <div className={styles.labBanner}>LabMode, more coming soon!</div>
-
       <input
         ref={gffInputRef}
         type="file"
