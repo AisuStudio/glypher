@@ -29,7 +29,6 @@ import {
   RotateCw,
   Scaling,
   Hand,
-  ChevronDown,
 } from "lucide-react";
 import GridCell, { DEFAULT_LEFT_BEARING, DEFAULT_RIGHT_BEARING, type CellTool } from "./GridCell";
 import BetaBadge from "./BetaBadge";
@@ -1547,7 +1546,7 @@ export default function Home() {
               aria-expanded={openMenu === "charset"}
               onClick={() => setOpenMenu((m) => (m === "charset" ? null : "charset"))}
             >
-              Character sets ({activeSetIds.size}) <ChevronDown size={12} strokeWidth={2} />
+              Character Sets
             </button>
             {openMenu === "charset" && (
               <div className={styles.dropdown} role="menu">
