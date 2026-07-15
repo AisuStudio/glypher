@@ -1588,25 +1588,6 @@ export default function Home() {
           </button>
         </div>
 
-        {topMode === "draw" && drawStyle !== "editor" && (
-          <div className={styles.hBarGroup}>
-            <span className={styles.hBarLabel}>Tools</span>
-            {visibleTools.map((t) => (
-              <button
-                key={t.value}
-                type="button"
-                className={`${styles.hBarItem} ${drawTool === t.value ? styles.hBarItemActive : ""}`}
-                onClick={() => setDrawTool(t.value)}
-                aria-label={`${t.label} (${t.shortcut})`}
-                title={`${t.label} (${t.shortcut})`}
-              >
-                <t.icon size={16} strokeWidth={2} />
-                <span>{t.label}</span>
-              </button>
-            ))}
-          </div>
-        )}
-
         <div className={styles.hBarGroup}>
           <span className={styles.hBarLabel}>Views</span>
           {VIEW_DEFS.map((v) => {
@@ -1626,6 +1607,25 @@ export default function Home() {
             );
           })}
         </div>
+
+        {topMode === "draw" && drawStyle !== "editor" && (
+          <div className={styles.hBarGroup}>
+            <span className={styles.hBarLabel}>Tools</span>
+            {visibleTools.map((t) => (
+              <button
+                key={t.value}
+                type="button"
+                className={`${styles.hBarItem} ${drawTool === t.value ? styles.hBarItemActive : ""}`}
+                onClick={() => setDrawTool(t.value)}
+                aria-label={`${t.label} (${t.shortcut})`}
+                title={`${t.label} (${t.shortcut})`}
+              >
+                <t.icon size={16} strokeWidth={2} />
+                <span>{t.label}</span>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       <input
