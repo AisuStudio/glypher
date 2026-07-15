@@ -261,8 +261,19 @@
 }
 
 .settingsPanel .sliderRow {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  column-gap: var(--sp-xs);
+  row-gap: var(--sp-xs);
+  padding: 8px 0;
   color: var(--color-vanilla);
   opacity: 0.85;
+}
+
+.settingsPanel .sliderRow span:first-child {
+  grid-column: 1 / -1;
+  min-width: 0;
 }
 
 .settingsPanel .sliderRow .val {
@@ -271,8 +282,8 @@
 }
 
 .settingsPanel .sliderRow input[type="range"] {
+  grid-column: 1;
   width: auto;
-  flex: 1;
 }
 
 .settingsPanel .modeToggle {
