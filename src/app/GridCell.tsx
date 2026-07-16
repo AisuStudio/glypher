@@ -154,6 +154,13 @@ type Props = {
   leftBearing?: number;
   rightBearing?: number;
   onBearingsChange: (left: number, right: number) => void;
+  // Reports the canvas's own actual CSS pixel size (not the grid row's
+  // nominal height) — the label bar underneath the letter takes some of
+  // that row's height for itself, so the canvas is always a bit shorter
+  // than cellSize*CELL_ASPECT_RATIO. The parent needs this real size, not
+  // the nominal one, to keep a glyph's stored points and its guide-line
+  // metrics rescaling in lockstep with whatever's actually on screen.
+  onResize?: (width: number, height: number) => void;
 };
 
 export default function GridCell({
@@ -168,6 +175,7 @@ export default function GridCell({
   leftBearing = DEFAULT_LEFT_BEARING,
   rightBearing = DEFAULT_RIGHT_BEARING,
   onBearingsChange,
+  onResize,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const pointsRef = useRef<StrokePoint[]>([]);
@@ -181,6 +189,7 @@ export default function GridCell({
   const metricsRef = useRef(metrics);
   const bearingsRef = useRef({ leftBearing, rightBearing });
   const onBearingsChangeRef = useRef(onBearingsChange);
+  const onResizeRef = useRef(onResize);
   const draggingRef = useRef<"left" | "right" | null>(null);
   const redrawRef = useRef<() => void>(() => {});
 
@@ -226,6 +235,7 @@ export default function GridCell({
     bearingsRef.current = { leftBearing, rightBearing };
   }
   onBearingsChangeRef.current = onBearingsChange;
+  onResizeRef.current = onResize;
   // Same clobber-guard, generalized: don't resync the working stroke data
   // from props while a Nudge or Move/Rotate/Scale edit is live, or the
   // in-flight reshape/transform would revert to the last-committed shape
@@ -321,6 +331,7 @@ export default function GridCell({
       canvas.width = rect.width * dpr;
       canvas.height = rect.height * dpr;
       canvas.getContext("2d")?.scale(dpr, dpr);
+      onResizeRef.current?.(rect.width, rect.height);
       redraw();
     }
     resize();

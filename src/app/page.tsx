@@ -424,6 +424,21 @@ export default function Home() {
     window.localStorage.setItem("glypher.cellWidth.v1", String(width));
   }
 
+  // Each GridCell's own actual rendered size, keyed by letter — the label
+  // bar under the canvas eats some of the grid row's nominal height (see
+  // GridCell's onResize), so cellWidth/cellHeightPx alone don't match what a
+  // cell's canvas really measures. Falls back to the nominal values below
+  // until a cell has reported in at least once (first paint).
+  const [cellDims, setCellDims] = useState<Record<string, { width: number; height: number }>>({});
+
+  function handleCellResize(letter: string, width: number, height: number) {
+    setCellDims((prev) => {
+      const existing = prev[letter];
+      if (existing && existing.width === width && existing.height === height) return prev;
+      return { ...prev, [letter]: { width, height } };
+    });
+  }
+
   // Free mode's ruled-line background — independent of Grid View's cellSize,
   // since the two rasters serve different purposes (a plain spatial
   // reference vs. per-glyph type metrics).
@@ -1771,9 +1786,17 @@ export default function Home() {
               : [];
             const needsFit = glyph && !(glyph.cellWidth && glyph.cellHeight);
             const cellHeightPx = cellSize * CELL_ASPECT_RATIO;
+            // The canvas's own measured size (once GridCell has reported
+            // in) — not the nominal cellWidth/cellHeightPx, which the label
+            // bar underneath already eats a few px of. Using the nominal
+            // value here made a freshly-drawn stroke's anchor not quite
+            // match what fromAnchorSpace later rescales against, so it
+            // visibly jumped a few pixels the instant the stroke committed.
+            const liveWidth = cellDims[letter]?.width ?? cellWidth;
+            const liveHeight = cellDims[letter]?.height ?? cellHeightPx;
             const fittedPoints = needsFit
-              ? fitStrokesToCell(glyphStrokes, letter, cellWidth, cellHeightPx, metrics)
-              : glyphStrokes.map((s) => fromAnchorSpace(s.points, glyph?.cellWidth, glyph?.cellHeight, cellWidth, cellHeightPx));
+              ? fitStrokesToCell(glyphStrokes, letter, liveWidth, liveHeight, metrics)
+              : glyphStrokes.map((s) => fromAnchorSpace(s.points, glyph?.cellWidth, glyph?.cellHeight, liveWidth, liveHeight));
             const cellStrokes = glyphStrokes.map((s, i) => ({ id: s.id, points: fittedPoints[i] }));
             return (
               <GridCell
@@ -1782,7 +1805,7 @@ export default function Home() {
                 strokes={cellStrokes}
                 tool={(FREE_ONLY_TOOLS.has(drawTool) ? "pen" : drawTool) as CellTool}
                 onErase={(ids) => deleteStrokes(ids)}
-                onStrokesChange={(updates) => handleGridStrokesChange(letter, updates, cellWidth, cellHeightPx)}
+                onStrokesChange={(updates) => handleGridStrokesChange(letter, updates, liveWidth, liveHeight)}
                 strokeOptions={optionsFor(settings)}
                 onStrokeComplete={(stroke, reportedWidth, reportedHeight) =>
                   handleGridStroke(letter, stroke, reportedWidth, reportedHeight)
@@ -1791,6 +1814,7 @@ export default function Home() {
                 leftBearing={glyph?.leftBearing}
                 rightBearing={glyph?.rightBearing}
                 onBearingsChange={(left, right) => handleBearingsChange(letter, left, right)}
+                onResize={(width, height) => handleCellResize(letter, width, height)}
               />
             );
           })}
