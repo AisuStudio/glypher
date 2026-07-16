@@ -15,7 +15,10 @@ export type CellTool = "pen" | "eraser" | "select" | "nudge" | "move" | "rotate"
 // Raw points now, not a precomputed outline — Nudge/Move/Rotate/Scale need
 // the real geometry to reshape/transform; the cell computes its own outline
 // from these via outlineFor() below, the same split Free's own canvas uses.
-export type CellStroke = { id: string; points: StrokePoint[] };
+// widthScale mirrors page.tsx's Stroke field — a Scale gesture bakes its
+// magnitude in here so thickness scales with the shape instead of staying
+// fixed; undefined (pre-existing strokes) === 1.
+export type CellStroke = { id: string; points: StrokePoint[]; widthScale?: number };
 
 const CELL_COLOR = "#1f1934";
 const SELECTED_COLOR = "#d8ff01"; // lemon — matches Free canvas's selection color
@@ -59,6 +62,14 @@ function outlineFor(points: StrokePoint[], options: StrokeOptions): [number, num
   return getStroke(points, options) as [number, number][];
 }
 
+// Mirrors page.tsx's effectiveSettingsFor — bakes a stroke's own widthScale
+// into the size passed to outlineFor, so rendering/hit-testing reflect its
+// actual (possibly scaled) thickness instead of the shared global size.
+function effectiveOptionsFor(stroke: CellStroke, options: StrokeOptions): StrokeOptions {
+  const ws = stroke.widthScale ?? 1;
+  return ws === 1 ? options : { ...options, size: options.size * ws };
+}
+
 // Pivot for Move/Rotate/Scale: bbox center across every currently-selected
 // stroke's points in THIS cell — mirrors page.tsx's own selectionPivot.
 function selectionPivot(strokes: CellStroke[], ids: Set<string>): { x: number; y: number } {
@@ -69,6 +80,18 @@ function selectionPivot(strokes: CellStroke[], ids: Set<string>): { x: number; y
     ymin = Math.min(ymin, y); ymax = Math.max(ymax, y);
   }
   return { x: (xmin + xmax) / 2, y: (ymin + ymax) / 2 };
+}
+
+// Default Scale anchor (no modifier): bbox bottom-left — mirrors page.tsx's
+// selectionBottomLeft.
+function selectionBottomLeft(strokes: CellStroke[], ids: Set<string>): { x: number; y: number } {
+  const points = strokes.filter((s) => ids.has(s.id)).flatMap((s) => s.points);
+  let xmin = Infinity, ymax = -Infinity;
+  for (const [x, y] of points) {
+    xmin = Math.min(xmin, x);
+    ymax = Math.max(ymax, y);
+  }
+  return { x: xmin, y: ymax };
 }
 
 function drawGuides(
@@ -143,7 +166,7 @@ type Props = {
   // handler removing a whole selection — reaches the parent as ONE call,
   // and therefore one undo step, instead of one per stroke.
   onErase: (ids: Set<string>) => void;
-  onStrokesChange: (updates: { id: string; points: StrokePoint[] }[]) => void;
+  onStrokesChange: (updates: { id: string; points: StrokePoint[]; widthScale?: number }[]) => void;
   strokeOptions: StrokeOptions;
   onStrokeComplete: (
     stroke: { id: string; points: StrokePoint[]; createdAt: number },
@@ -217,6 +240,11 @@ export default function GridCell({
     startY: number;
     startDist: number;
     startAngle: number;
+    startDx: number;
+    startDy: number;
+    uniform: boolean;
+    lastScaleX: number;
+    lastScaleY: number;
     snapshot: Map<string, StrokePoint[]>;
   } | null>(null);
 
@@ -265,7 +293,7 @@ export default function GridCell({
       for (const s of strokesRef.current) {
         const color =
           s.id === editingStrokeIdRef.current || selectedIdsRef.current.has(s.id) ? SELECTED_COLOR : CELL_COLOR;
-        fillOutline(ctx, outlineFor(s.points, strokeOptionsRef.current), color);
+        fillOutline(ctx, outlineFor(s.points, effectiveOptionsFor(s, strokeOptionsRef.current)), color);
       }
       if (pointsRef.current.length > 0) {
         fillOutline(ctx, outlineFor(pointsRef.current, strokeOptionsRef.current));
@@ -387,7 +415,7 @@ export default function GridCell({
       }
       for (let i = strokesRef.current.length - 1; i >= 0; i--) {
         const s = strokesRef.current[i];
-        if (pointInPolygon([x, y], outlineFor(s.points, strokeOptionsRef.current))) {
+        if (pointInPolygon([x, y], outlineFor(s.points, effectiveOptionsFor(s, strokeOptionsRef.current)))) {
           editingStrokeIdRef.current = s.id;
           anchorIndicesRef.current = simplifyStrokeIndices(s.points.map((p) => [p[0], p[1]]));
           resampledRef.current = false;
@@ -400,18 +428,33 @@ export default function GridCell({
     }
 
     // Move/Rotate/Scale click: must land on an already-selected stroke
-    // (Select populates selectedIdsRef first) — same split as page.tsx.
-    function handleTransformPointerDown(x: number, y: number, mode: "move" | "rotate" | "scale") {
+    // (Select populates selectedIdsRef first) — same split as page.tsx. For
+    // Scale, the anchor is the selection's bbox bottom-left by default, or
+    // its center if Alt is held; Shift locks the gesture to uniform scaling
+    // — mirrors page.tsx's handleTransformPointerDown exactly.
+    function handleTransformPointerDown(
+      x: number,
+      y: number,
+      mode: "move" | "rotate" | "scale",
+      altKey: boolean,
+      shiftKey: boolean
+    ) {
       let hit = false;
       for (let i = strokesRef.current.length - 1; i >= 0; i--) {
         const s = strokesRef.current[i];
-        if (selectedIdsRef.current.has(s.id) && pointInPolygon([x, y], outlineFor(s.points, strokeOptionsRef.current))) {
+        if (
+          selectedIdsRef.current.has(s.id) &&
+          pointInPolygon([x, y], outlineFor(s.points, effectiveOptionsFor(s, strokeOptionsRef.current)))
+        ) {
           hit = true;
           break;
         }
       }
       if (!hit) return;
-      const pivot = selectionPivot(strokesRef.current, selectedIdsRef.current);
+      const anchor =
+        mode === "scale" && !altKey
+          ? selectionBottomLeft(strokesRef.current, selectedIdsRef.current)
+          : selectionPivot(strokesRef.current, selectedIdsRef.current);
       const snapshot = new Map(
         strokesRef.current
           .filter((s) => selectedIdsRef.current.has(s.id))
@@ -419,12 +462,17 @@ export default function GridCell({
       );
       transformStartRef.current = {
         mode,
-        pivotX: pivot.x,
-        pivotY: pivot.y,
+        pivotX: anchor.x,
+        pivotY: anchor.y,
         startX: x,
         startY: y,
-        startDist: Math.max(Math.hypot(x - pivot.x, y - pivot.y), 1),
-        startAngle: Math.atan2(y - pivot.y, x - pivot.x),
+        startDist: Math.max(Math.hypot(x - anchor.x, y - anchor.y), 1),
+        startAngle: Math.atan2(y - anchor.y, x - anchor.x),
+        startDx: x - anchor.x,
+        startDy: y - anchor.y,
+        uniform: shiftKey,
+        lastScaleX: 1,
+        lastScaleY: 1,
         snapshot,
       };
     }
@@ -435,9 +483,20 @@ export default function GridCell({
       const dx = x - t.startX;
       const dy = y - t.startY;
       const angle = Math.atan2(y - t.pivotY, x - t.pivotX) - t.startAngle;
-      const scaleFactor = Math.max(Math.hypot(x - t.pivotX, y - t.pivotY), 1) / t.startDist;
       const cos = Math.cos(angle);
       const sin = Math.sin(angle);
+
+      const SCALE_EPS = 1;
+      const dxNow = x - t.pivotX;
+      const dyNow = y - t.pivotY;
+      const uniformFactor = Math.max(Math.hypot(dxNow, dyNow), 1) / t.startDist;
+      const rawScaleX = Math.abs(t.startDx) < SCALE_EPS ? 1 : dxNow / t.startDx;
+      const rawScaleY = Math.abs(t.startDy) < SCALE_EPS ? 1 : dyNow / t.startDy;
+      const scaleX = t.uniform ? uniformFactor : rawScaleX;
+      const scaleY = t.uniform ? uniformFactor : rawScaleY;
+      t.lastScaleX = scaleX;
+      t.lastScaleY = scaleY;
+
       for (const [id, points] of t.snapshot) {
         const idx = strokesRef.current.findIndex((s) => s.id === id);
         if (idx === -1) continue;
@@ -449,7 +508,7 @@ export default function GridCell({
             const oy = py - t.pivotY;
             return [t.pivotX + ox * cos - oy * sin, t.pivotY + ox * sin + oy * cos, pressure] as StrokePoint;
           }
-          return [t.pivotX + (px - t.pivotX) * scaleFactor, t.pivotY + (py - t.pivotY) * scaleFactor, pressure] as StrokePoint;
+          return [t.pivotX + (px - t.pivotX) * scaleX, t.pivotY + (py - t.pivotY) * scaleY, pressure] as StrokePoint;
         });
       }
     }
@@ -466,7 +525,7 @@ export default function GridCell({
         // Topmost (last-drawn) stroke wins when strokes overlap.
         for (let i = strokesRef.current.length - 1; i >= 0; i--) {
           const s = strokesRef.current[i];
-          if (pointInPolygon([x, y], outlineFor(s.points, strokeOptionsRef.current))) {
+          if (pointInPolygon([x, y], outlineFor(s.points, effectiveOptionsFor(s, strokeOptionsRef.current)))) {
             onEraseRef.current(new Set([s.id]));
             break;
           }
@@ -479,7 +538,7 @@ export default function GridCell({
         return;
       }
       if (TRANSFORM_TOOLS.has(toolRef.current)) {
-        handleTransformPointerDown(x, y, toolRef.current as "move" | "rotate" | "scale");
+        handleTransformPointerDown(x, y, toolRef.current as "move" | "rotate" | "scale", e.altKey, e.shiftKey);
         redraw();
         return;
       }
@@ -564,9 +623,20 @@ export default function GridCell({
       }
       if (transformStartRef.current) {
         const t = transformStartRef.current;
+        if (t.mode === "scale") {
+          // Same widthScale bake-in as page.tsx's Free-canvas Scale commit —
+          // geometric mean of the two axes so a width-only/height-only
+          // stretch doesn't also thicken the ink.
+          const widthFactor = Math.sqrt(Math.abs(t.lastScaleX * t.lastScaleY));
+          for (const id of t.snapshot.keys()) {
+            const idx = strokesRef.current.findIndex((s) => s.id === id);
+            if (idx === -1) continue;
+            strokesRef.current[idx].widthScale = (strokesRef.current[idx].widthScale ?? 1) * widthFactor;
+          }
+        }
         const updates = [...t.snapshot.keys()].flatMap((id) => {
           const s = strokesRef.current.find((s) => s.id === id);
-          return s ? [{ id, points: s.points }] : [];
+          return s ? [{ id, points: s.points, widthScale: s.widthScale }] : [];
         });
         onStrokesChangeRef.current(updates);
         transformStartRef.current = null;
@@ -663,7 +733,7 @@ export default function GridCell({
     drawGuides(ctx, canvas.clientWidth, canvas.clientHeight, metrics, leftBearing, rightBearing);
     for (const s of strokes) {
       const color = selectedIdsRef.current.has(s.id) ? SELECTED_COLOR : CELL_COLOR;
-      fillOutline(ctx, outlineFor(s.points, strokeOptions), color);
+      fillOutline(ctx, outlineFor(s.points, effectiveOptionsFor(s, strokeOptions)), color);
     }
   }, [strokes, metrics, leftBearing, rightBearing, strokeOptions]);
 

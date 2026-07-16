@@ -4,6 +4,10 @@ export type Stroke = {
   id: string;
   points: StrokePoint[];
   createdAt: number;
+  // Multiplier baked in by a Scale-tool gesture, so a stroke's rendered
+  // thickness scales with its own geometry instead of every stroke sharing
+  // one fixed global size. Undefined (pre-existing/imported strokes) === 1.
+  widthScale?: number;
 };
 
 const STORAGE_KEY = "fontane.strokes.v1";

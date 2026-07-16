@@ -130,6 +130,14 @@ function outlineFor(points: StrokePoint[], settings: StrokeSettings): [number, n
   return getStroke(points, optionsFor(settings)) as [number, number][];
 }
 
+// A Scale-tool gesture bakes its magnitude into the stroke's own widthScale
+// (see applyTransform) so relative thickness stays constant as the shape
+// grows/shrinks, instead of every stroke sharing one fixed global size.
+function effectiveSettingsFor(stroke: Stroke, settings: StrokeSettings): StrokeSettings {
+  const ws = stroke.widthScale ?? 1;
+  return ws === 1 ? settings : { ...settings, size: settings.size * ws };
+}
+
 // Lowercase letters that dip below the baseline (their body still sits in
 // the x-height band, only the tail extends to the descender line) vs. ones
 // that reach the ascender line — used to pick which pair of guide lines a
@@ -244,6 +252,18 @@ function selectionPivot(strokes: Stroke[]): { x: number; y: number } {
   return { x: (xmin + xmax) / 2, y: (ymin + ymax) / 2 };
 }
 
+// Default Scale anchor (no modifier held): bottom-left of the same bbox
+// selectionPivot uses — canvas is y-down, so "bottom" is the max-y edge.
+function selectionBottomLeft(strokes: Stroke[]): { x: number; y: number } {
+  const allPoints = strokes.flatMap((s) => s.points);
+  let xmin = Infinity, ymax = -Infinity;
+  for (const [x, y] of allPoints) {
+    xmin = Math.min(xmin, x);
+    ymax = Math.max(ymax, y);
+  }
+  return { x: xmin, y: ymax };
+}
+
 function applyPath(ctx: CanvasRenderingContext2D, commands: PathCommand[]) {
   for (const c of commands) {
     if (c.type === "M") ctx.moveTo(c.x, c.y);
@@ -291,7 +311,7 @@ function compileDocument(glyphs: Glyph[], strokes: Stroke[], settings: StrokeSet
         g.strokeIds
           .map((id) => byId.get(id))
           .filter((s): s is Stroke => Boolean(s))
-          .map((s) => outlineFor(s.points, settings))
+          .map((s) => outlineFor(s.points, effectiveSettingsFor(s, settings)))
       ).map((ring) => pathToSvgD(outlineToPath(ring))),
     })),
   };
@@ -548,6 +568,19 @@ export default function Home() {
     startY: number;
     startDist: number;
     startAngle: number;
+    // Signed per-axis start offsets from the anchor — lets Scale compute
+    // independent (non-uniform) x/y ratios; startDist/startAngle above stay
+    // for Rotate and for Shift-locked (uniform) Scale.
+    startDx: number;
+    startDy: number;
+    // Shift-locked at gesture start (see handleTransformPointerDown) rather
+    // than re-read live, so toggling Shift mid-drag can't suddenly snap an
+    // already-diverged non-uniform scale back to square.
+    uniform: boolean;
+    // Last scaleX/scaleY applied by applyTransform — read once at pointerup
+    // to bake this gesture's magnitude into the scaled strokes' widthScale.
+    lastScaleX: number;
+    lastScaleY: number;
     snapshot: Map<string, StrokePoint[]>;
     // Updated every pointermove by applyTransform so redraw() can paint a
     // pivot dot + guide line without redraw() itself needing the live
@@ -726,7 +759,7 @@ export default function Home() {
     // Restore persisted strokes. Glyphs are already loaded via useState's lazy
     // initializer, so just prime the ref the first redraw() below will read.
     completedRef.current = loadStrokes();
-    outlinesRef.current = completedRef.current.map((s) => outlineFor(s.points, settingsRef.current));
+    outlinesRef.current = completedRef.current.map((s) => outlineFor(s.points, effectiveSettingsFor(s, settingsRef.current)));
     setStrokeCount(completedRef.current.length);
     taggedIdsRef.current = new Set(glyphs.flatMap((g) => g.strokeIds));
     gridNativeStrokeIdsRef.current = new Set(
@@ -761,7 +794,7 @@ export default function Home() {
         return;
       }
       if (topModeRef.current === "draw" && TRANSFORM_TOOLS.has(drawToolRef.current)) {
-        handleTransformPointerDown(p[0], p[1], drawToolRef.current as "move" | "rotate" | "scale");
+        handleTransformPointerDown(p[0], p[1], drawToolRef.current as "move" | "rotate" | "scale", e.altKey, e.shiftKey);
         redraw();
         return;
       }
@@ -798,7 +831,7 @@ export default function Home() {
             const pointIdx = anchorIndicesRef.current[draggingAnchorRef.current];
             const prevPressure = stroke.points[pointIdx][2];
             stroke.points[pointIdx] = [p[0], p[1], prevPressure];
-            outlinesRef.current[idx] = outlineFor(stroke.points, settingsRef.current);
+            outlinesRef.current[idx] = outlineFor(stroke.points, effectiveSettingsFor(stroke, settingsRef.current));
             redraw();
           }
           return;
@@ -849,7 +882,23 @@ export default function Home() {
         return;
       }
       if (topModeRef.current === "draw" && TRANSFORM_TOOLS.has(drawToolRef.current)) {
-        if (transformStartRef.current) {
+        const t = transformStartRef.current;
+        if (t) {
+          if (t.mode === "scale") {
+            // Bake this gesture's magnitude into each scaled stroke's own
+            // widthScale (geometric mean of the two axes — symmetric, so a
+            // width-only or height-only stretch doesn't also thicken the
+            // ink), so relative stroke thickness stays constant instead of
+            // drifting as the shape grows/shrinks.
+            const widthFactor = Math.sqrt(Math.abs(t.lastScaleX * t.lastScaleY));
+            for (const id of t.snapshot.keys()) {
+              const idx = completedRef.current.findIndex((s) => s.id === id);
+              if (idx === -1) continue;
+              const stroke = completedRef.current[idx];
+              stroke.widthScale = (stroke.widthScale ?? 1) * widthFactor;
+              outlinesRef.current[idx] = outlineFor(stroke.points, effectiveSettingsFor(stroke, settingsRef.current));
+            }
+          }
           transformStartRef.current = null;
           saveStrokes(completedRef.current);
         }
@@ -909,7 +958,7 @@ export default function Home() {
   useEffect(() => {
     settingsRef.current = settings;
     saveSettings(settings);
-    outlinesRef.current = completedRef.current.map((s) => outlineFor(s.points, settings));
+    outlinesRef.current = completedRef.current.map((s) => outlineFor(s.points, effectiveSettingsFor(s, settings)));
     redrawRef.current();
   }, [settings]);
 
@@ -1075,7 +1124,7 @@ export default function Home() {
 
   function applySnapshot(snap: { strokes: Stroke[]; glyphs: Glyph[] }) {
     completedRef.current = snap.strokes;
-    outlinesRef.current = snap.strokes.map((s) => outlineFor(s.points, settingsRef.current));
+    outlinesRef.current = snap.strokes.map((s) => outlineFor(s.points, effectiveSettingsFor(s, settingsRef.current)));
     saveStrokes(completedRef.current);
     setStrokeCount(completedRef.current.length);
     setGlyphs(snap.glyphs);
@@ -1245,7 +1294,7 @@ export default function Home() {
             stroke.points = anchorIndicesRef.current.map((i) => stroke.points[i]);
             anchorIndicesRef.current = stroke.points.map((_, i) => i);
             resampledRef.current = true;
-            outlinesRef.current[idx] = outlineFor(stroke.points, settingsRef.current);
+            outlinesRef.current[idx] = outlineFor(stroke.points, effectiveSettingsFor(stroke, settingsRef.current));
           }
           draggingAnchorRef.current = rank;
           return;
@@ -1269,12 +1318,21 @@ export default function Home() {
   // already part of selectedIds (populated by Select/Assign's lasso first) —
   // clicking an unselected stroke or empty space is a no-op, same "you pick
   // your selection separately, then act on it" split as Figma/Illustrator.
-  // On a hit, the pivot (bbox center) and a frozen snapshot of every
-  // selected stroke's points are captured once; every subsequent
-  // pointermove recomputes from that snapshot rather than the live
-  // (already-mutated) points, same shape as Nudge's per-anchor drag above,
-  // just applied to a whole selection at once.
-  function handleTransformPointerDown(x: number, y: number, mode: "move" | "rotate" | "scale") {
+  // On a hit, the anchor and a frozen snapshot of every selected stroke's
+  // points are captured once; every subsequent pointermove recomputes from
+  // that snapshot rather than the live (already-mutated) points, same shape
+  // as Nudge's per-anchor drag above, just applied to a whole selection at
+  // once. For Scale, the anchor is the selection's bbox bottom-left by
+  // default, or its center if Alt is held (Alt preserves what used to be the
+  // only behavior); Shift locks the gesture to uniform scaling. Move/Rotate
+  // ignore both modifiers — only Scale's anchor/uniformity changes here.
+  function handleTransformPointerDown(
+    x: number,
+    y: number,
+    mode: "move" | "rotate" | "scale",
+    altKey: boolean,
+    shiftKey: boolean
+  ) {
     let hit = false;
     for (let i = completedRef.current.length - 1; i >= 0; i--) {
       if (selectedIdsRef.current.has(completedRef.current[i].id) && pointInPolygon([x, y], outlinesRef.current[i])) {
@@ -1286,23 +1344,28 @@ export default function Home() {
     pushUndoSnapshot();
 
     const selected = completedRef.current.filter((s) => selectedIdsRef.current.has(s.id));
-    const pivot = selectionPivot(selected);
+    const anchor = mode === "scale" && !altKey ? selectionBottomLeft(selected) : selectionPivot(selected);
     const snapshot = new Map(selected.map((s) => [s.id, s.points.map((p) => [...p] as StrokePoint)]));
     transformStartRef.current = {
       mode,
-      pivotX: pivot.x,
-      pivotY: pivot.y,
+      pivotX: anchor.x,
+      pivotY: anchor.y,
       startX: x,
       startY: y,
-      startDist: Math.max(Math.hypot(x - pivot.x, y - pivot.y), 1),
-      startAngle: Math.atan2(y - pivot.y, x - pivot.x),
+      startDist: Math.max(Math.hypot(x - anchor.x, y - anchor.y), 1),
+      startAngle: Math.atan2(y - anchor.y, x - anchor.x),
+      startDx: x - anchor.x,
+      startDy: y - anchor.y,
+      uniform: shiftKey,
+      lastScaleX: 1,
+      lastScaleY: 1,
       snapshot,
       currentX: x,
       currentY: y,
     };
   }
 
-  // Applies the live pointer position against the frozen snapshot/pivot
+  // Applies the live pointer position against the frozen snapshot/anchor
   // captured above, for whichever of Move/Rotate/Scale is active. Mutates
   // completedRef's strokes + outlinesRef in place (mirroring every other
   // in-place stroke edit in this file) and leaves saving for pointerup.
@@ -1314,9 +1377,23 @@ export default function Home() {
     const dx = x - t.startX;
     const dy = y - t.startY;
     const angle = Math.atan2(y - t.pivotY, x - t.pivotX) - t.startAngle;
-    const scaleFactor = Math.max(Math.hypot(x - t.pivotX, y - t.pivotY), 1) / t.startDist;
     const cos = Math.cos(angle);
     const sin = Math.sin(angle);
+
+    // Non-uniform scale: independent x/y ratios from the anchor, signed so a
+    // corner drag can pull past the anchor (mirroring the shape), same as a
+    // vector editor's corner handle. Shift (t.uniform) collapses both back
+    // to the single hypot-ratio factor Scale always used before this change.
+    const SCALE_EPS = 1;
+    const dxNow = x - t.pivotX;
+    const dyNow = y - t.pivotY;
+    const uniformFactor = Math.max(Math.hypot(dxNow, dyNow), 1) / t.startDist;
+    const rawScaleX = Math.abs(t.startDx) < SCALE_EPS ? 1 : dxNow / t.startDx;
+    const rawScaleY = Math.abs(t.startDy) < SCALE_EPS ? 1 : dyNow / t.startDy;
+    const scaleX = t.uniform ? uniformFactor : rawScaleX;
+    const scaleY = t.uniform ? uniformFactor : rawScaleY;
+    t.lastScaleX = scaleX;
+    t.lastScaleY = scaleY;
 
     for (const [id, points] of t.snapshot) {
       const idx = completedRef.current.findIndex((s) => s.id === id);
@@ -1330,9 +1407,9 @@ export default function Home() {
           return [t.pivotX + ox * cos - oy * sin, t.pivotY + ox * sin + oy * cos, pressure] as StrokePoint;
         }
         // scale
-        return [t.pivotX + (px - t.pivotX) * scaleFactor, t.pivotY + (py - t.pivotY) * scaleFactor, pressure] as StrokePoint;
+        return [t.pivotX + (px - t.pivotX) * scaleX, t.pivotY + (py - t.pivotY) * scaleY, pressure] as StrokePoint;
       });
-      outlinesRef.current[idx] = outlineFor(stroke.points, settingsRef.current);
+      outlinesRef.current[idx] = outlineFor(stroke.points, effectiveSettingsFor(stroke, settingsRef.current));
     }
   }
 
@@ -1387,14 +1464,14 @@ export default function Home() {
   // just driven by ids reported up from the cell instead of a local ref.
   function handleGridStrokesChange(
     letter: string,
-    updates: { id: string; points: StrokePoint[] }[],
+    updates: { id: string; points: StrokePoint[]; widthScale?: number }[],
     currentCellWidth: number,
     currentCellHeight: number
   ) {
     if (updates.length === 0) return;
     pushUndoSnapshot();
     const glyph = glyphsRef.current.find((g) => g.kind === "base" && g.name === letter);
-    for (const { id, points: rawPoints } of updates) {
+    for (const { id, points: rawPoints, widthScale } of updates) {
       const idx = completedRef.current.findIndex((s) => s.id === id);
       if (idx === -1) continue;
       // Same anchor conversion as handleGridStroke — GridCell reports these
@@ -1409,8 +1486,8 @@ export default function Home() {
         currentCellHeight,
         keepProportions
       );
-      completedRef.current[idx] = { ...completedRef.current[idx], points };
-      outlinesRef.current[idx] = outlineFor(points, settingsRef.current);
+      completedRef.current[idx] = { ...completedRef.current[idx], points, ...(widthScale !== undefined ? { widthScale } : {}) };
+      outlinesRef.current[idx] = outlineFor(points, effectiveSettingsFor(completedRef.current[idx], settingsRef.current));
     }
     saveStrokes(completedRef.current);
 
@@ -1848,7 +1925,7 @@ export default function Home() {
               : glyphStrokes.map((s) =>
                   fromAnchorSpace(s.points, glyph?.cellWidth, glyph?.cellHeight, liveWidth, liveHeight, keepProportions)
                 );
-            const cellStrokes = glyphStrokes.map((s, i) => ({ id: s.id, points: fittedPoints[i] }));
+            const cellStrokes = glyphStrokes.map((s, i) => ({ id: s.id, points: fittedPoints[i], widthScale: s.widthScale }));
             return (
               <GridCell
                 key={letter}
