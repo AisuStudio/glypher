@@ -74,7 +74,7 @@ ${groups.join("\n")}
 </svg>`;
 }
 
-export function downloadSkeletonSvg(glyphs: Glyph[], strokes: Stroke[], fileName = "letterspace-skeletons.svg") {
+export function downloadSkeletonSvg(glyphs: Glyph[], strokes: Stroke[], fileName = "fontane-skeletons.svg") {
   const svg = buildSkeletonSvg(glyphs, strokes);
   const blob = new Blob([svg], { type: "image/svg+xml" });
   saveFile(blob, {

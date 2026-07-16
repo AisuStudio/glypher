@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""Compiles a letterspace-document.json (Export tab -> Download JSON in the
-letter.space web app) into a real .ttf font.
+"""Compiles a fontane-document.json (Export tab -> Download JSON in the
+Fontane web app) into a real .ttf font.
 
-No UFO / ufo2ft involved: letter.space's exported SVG paths are already
+No UFO / ufo2ft involved: Fontane's exported SVG paths are already
 quadratic (M/Q/Z, see src/lib/contour.ts), which is exactly what TrueType's
 glyf table stores natively. So this builds the glyf table directly from the
 parsed path data via fontTools' low-level FontBuilder + TTGlyphPen, instead
 of round-tripping through a UFO and a cubic-curve compiler.
 
 Usage:
-    python3 build_ttf.py letterspace-document.json output.ttf
+    python3 build_ttf.py fontane-document.json output.ttf
 """
 
 import json
@@ -137,7 +137,7 @@ def glyph_name_for(entry):
     return entry["name"]
 
 
-def build_font(doc, family_name="Letterspace Sketch"):
+def build_font(doc, family_name="Fontane Sketch"):
     glyph_order = [".notdef"]
     cmap = {}
     glyphs = {}
@@ -192,7 +192,7 @@ def build_font(doc, family_name="Letterspace Sketch"):
 
 def main():
     if len(sys.argv) < 3:
-        print("Usage: python3 build_ttf.py <letterspace-document.json> <output.ttf>")
+        print("Usage: python3 build_ttf.py <fontane-document.json> <output.ttf>")
         sys.exit(1)
 
     with open(sys.argv[1], "r", encoding="utf-8") as f:

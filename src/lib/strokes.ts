@@ -6,12 +6,13 @@ export type Stroke = {
   createdAt: number;
 };
 
-const STORAGE_KEY = "glypher.strokes.v1";
+const STORAGE_KEY = "fontane.strokes.v1";
+const LEGACY_STORAGE_KEY = "glypher.strokes.v1"; // pre-rename data, read as a fallback so nothing is lost
 
 export function loadStrokes(): Stroke[] {
   if (typeof window === "undefined") return [];
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
+    const raw = window.localStorage.getItem(STORAGE_KEY) ?? window.localStorage.getItem(LEGACY_STORAGE_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed : [];

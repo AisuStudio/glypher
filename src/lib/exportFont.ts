@@ -164,7 +164,7 @@ function glyphNameFor(entry: CompiledGlyph): string {
   return entry.name;
 }
 
-export function buildFont(doc: CompiledDocument, familyName = "Letterspace Sketch"): Font {
+export function buildFont(doc: CompiledDocument, familyName = "Fontane Sketch"): Font {
   const notdefGlyph = new Glyph({
     name: ".notdef",
     advanceWidth: DEFAULT_ADVANCE,
@@ -210,7 +210,7 @@ export function buildFont(doc: CompiledDocument, familyName = "Letterspace Sketc
   });
 }
 
-export function downloadFont(doc: CompiledDocument, fileName = "letterspace.otf") {
+export function downloadFont(doc: CompiledDocument, fileName = "fontane.otf") {
   const font = buildFont(doc);
   const blob = new Blob([font.toArrayBuffer()], { type: "font/otf" });
   saveFile(blob, {

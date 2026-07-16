@@ -1,4 +1,4 @@
-# letter.space
+# Fontane
 
 A web/PWA tool for capturing hand lettering (Apple Pencil, Wacom, mouse/trackpad as fallback — the Pointer Events API is device-agnostic) and turning it into a font with contextual alternates.
 
@@ -20,6 +20,8 @@ All of the above feed a shared, editable JSON document (Export tab). From there,
 - **Local TTF** ([`font-build/`](./font-build)) — a Python + `fontTools` script for a real TrueType (`glyf`-table) `.ttf` instead of the in-app CFF-flavored `.otf`.
 - **Skeleton SVG** (Export tab → "Export Skeleton SVG") — every glyph's raw pen centerline as an open path, for hand-building a stroke-width outline in Glyphs.app or similar.
 - **Glyphs bridge** (full Glyphs license only — Glyphs Mini doesn't support scripts/plugins): [`glyphs-plugin/`](./glyphs-plugin) has a Script that reads the JSON directly and builds real glyphs + outlines in the currently open font.
+
+Export (Export tab) also branches into an **FFF** ("Fontane Font File", `src/lib/projectFile.ts`) project save — the raw editable glyphs/strokes/metrics/settings, for reopening and continuing to edit later (as opposed to the compiled JSON/OTF/skeleton exports above, which drop that editable source data).
 
 Design tokens come from [waffle](https://github.com/AisuStudio/waffle).
 

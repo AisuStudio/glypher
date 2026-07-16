@@ -1,6 +1,6 @@
 {
-  "name": "letter.space",
-  "short_name": "letter.space",
+  "name": "Fontane.Studio",
+  "short_name": "Fontane",
   "description": "Hand lettering, captured with pressure, turned into a font.",
   "start_url": "/",
   "display": "standalone",

@@ -1,7 +1,7 @@
 import styles from "./page.module.css";
 
 // Ported from CNSL (app/page.tsx) — same concave "bowtie" ribbon shape,
-// recolored/refonted to letter.space's own tokens instead of CNSL's.
+// recolored/refonted to Fontane's own tokens instead of CNSL's.
 export default function BetaBadge() {
   return (
     <div className={styles.betaBadge} aria-hidden>

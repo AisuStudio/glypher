@@ -16,12 +16,13 @@ export const DEFAULT_METRICS: Metrics = {
   descender: 0.95,
 };
 
-const STORAGE_KEY = "glypher.metrics.v1";
+const STORAGE_KEY = "fontane.metrics.v1";
+const LEGACY_STORAGE_KEY = "glypher.metrics.v1"; // pre-rename data, read as a fallback so nothing is lost
 
 export function loadMetrics(): Metrics {
   if (typeof window === "undefined") return DEFAULT_METRICS;
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
+    const raw = window.localStorage.getItem(STORAGE_KEY) ?? window.localStorage.getItem(LEGACY_STORAGE_KEY);
     if (!raw) return DEFAULT_METRICS;
     const parsed = JSON.parse(raw);
     return { ...DEFAULT_METRICS, ...parsed };

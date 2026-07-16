@@ -16,12 +16,13 @@ export const DEFAULT_SETTINGS: StrokeSettings = {
   streamline: 0.5,
 };
 
-const STORAGE_KEY = "glypher.settings.v1";
+const STORAGE_KEY = "fontane.settings.v1";
+const LEGACY_STORAGE_KEY = "glypher.settings.v1"; // pre-rename data, read as a fallback so nothing is lost
 
 export function loadSettings(): StrokeSettings {
   if (typeof window === "undefined") return DEFAULT_SETTINGS;
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
+    const raw = window.localStorage.getItem(STORAGE_KEY) ?? window.localStorage.getItem(LEGACY_STORAGE_KEY);
     if (!raw) return DEFAULT_SETTINGS;
     const parsed = JSON.parse(raw);
     return { ...DEFAULT_SETTINGS, ...parsed };

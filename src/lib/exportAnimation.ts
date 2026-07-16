@@ -108,7 +108,7 @@ export function downloadAnimationHtml(
   strokes: Stroke[],
   metrics: Metrics,
   presetId: AnimationPresetId,
-  fileName = "letterspace-animation.html"
+  fileName = "fontane-animation.html"
 ) {
   const html = buildAnimationHtml(text, glyphs, strokes, metrics, presetId);
   const blob = new Blob([html], { type: "text/html" });
@@ -116,6 +116,6 @@ export function downloadAnimationHtml(
     suggestedName: fileName,
     mimeType: "text/html",
     extension: "html",
-    description: "letter.space animated HTML",
+    description: "Fontane animated HTML",
   });
 }

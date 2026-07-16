@@ -4,11 +4,11 @@ import { saveStrokes, type Stroke } from "./strokes";
 import { saveMetrics, type Metrics } from "./metrics";
 import { saveSettings, type StrokeSettings } from "./settings";
 
-// "GFF" (Glypher Font File) — a raw dump of exactly the state the app keeps
+// "FFF" (Fontane Font File) — a raw dump of exactly the state the app keeps
 // in localStorage (glyphs/strokes/metrics/settings), NOT the compiled
 // export (src/app/page.tsx's compileDocument/"Download JSON"). The compiled
 // document has already unioned outlines and dropped the raw pen points —
-// fine for feeding a font compiler, useless for continuing to edit. GFF
+// fine for feeding a font compiler, useless for continuing to edit. FFF
 // keeps the editable source data instead, so a project can be saved and
 // reopened (here or on another machine) to keep drawing/tagging/adjusting.
 export type ProjectFile = {
@@ -33,24 +33,24 @@ export function downloadProjectFile(
   strokes: Stroke[],
   metrics: Metrics,
   settings: StrokeSettings,
-  fileName = "untitled.gff"
+  fileName = "untitled.fff"
 ) {
   const project = buildProjectFile(glyphs, strokes, metrics, settings);
   const blob = new Blob([JSON.stringify(project, null, 2)], { type: "application/json" });
   saveFile(blob, {
     suggestedName: fileName,
     mimeType: "application/json",
-    extension: "gff",
-    description: "Glypher Font File",
+    extension: "fff",
+    description: "Fontane Font File",
   });
 }
 
-// GFF has exactly one producer (this app) — this only guards against "not
-// a GFF at all" rather than fully validating every field.
+// FFF has exactly one producer (this app) — this only guards against "not
+// an FFF at all" rather than fully validating every field.
 export function parseProjectFile(text: string): ProjectFile {
   const parsed = JSON.parse(text);
   if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.glyphs) || !Array.isArray(parsed.strokes)) {
-    throw new Error("Not a valid Glypher Font File (.gff)");
+    throw new Error("Not a valid Fontane Font File (.fff)");
   }
   return parsed as ProjectFile;
 }

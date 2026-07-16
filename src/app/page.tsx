@@ -100,7 +100,7 @@ type ViewDef = { key: string; label: string; icon: typeof Brush; topMode: TopMod
 // to expose in the nav — but topMode==="animate" and AnimatePanel itself are
 // untouched, so re-adding a { key: "animate", ... } entry here is all it'll
 // take to bring it back. Export isn't a view either: it has no view of its
-// own to switch into (File's Export GFF/JSON/OTF/Skeleton SVG actions cover
+// own to switch into (File's Export FFF/JSON/OTF/Skeleton SVG actions cover
 // the whole surface already) — it used to be a JSON-preview panel, but that
 // duplicated what File already does and confused "view" with "action".
 const VIEW_DEFS: ViewDef[] = [
@@ -347,7 +347,7 @@ function strokeLassoPath(ctx: CanvasRenderingContext2D, points: [number, number]
 
 export default function Home() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const gffInputRef = useRef<HTMLInputElement | null>(null);
+  const fffInputRef = useRef<HTMLInputElement | null>(null);
   const drawingRef = useRef(false);
 
   // Completed strokes + their cached outlines (recomputed only when a stroke is added
@@ -372,7 +372,7 @@ export default function Home() {
   const [topMode, setTopMode] = useState<TopMode>("draw");
   const [drawStyle, setDrawStyle] = useState<DrawStyle>("free");
 
-  // Menu bar dropdown (Glypher/File/Edit/View/Tools) — dismissed by the
+  // Menu bar dropdown (Fontane/File/Edit/View/Tools) — dismissed by the
   // outside-click listener below.
   const [openMenu, setOpenMenu] = useState<MenuKey | null>(null);
   // Hover-to-open for the menu bar: a short close delay (not an instant
@@ -394,7 +394,7 @@ export default function Home() {
       menuHoverCloseTimeoutRef.current = null;
     }, 200);
   }
-  // Info/How-to modal, opened from the Glypher menu — a plain overlay
+  // Info/How-to modal, opened from the Fontane menu — a plain overlay
   // rather than another dropdown, since this content is paragraph-length,
   // not a short action list.
   const [infoModal, setInfoModal] = useState<"info" | "howto" | null>(null);
@@ -403,12 +403,12 @@ export default function Home() {
   const [metrics, setMetrics] = useState<Metrics>(() => loadMetrics());
   const [cellSize, setCellSize] = useState(() => {
     if (typeof window === "undefined") return 90;
-    return Number(window.localStorage.getItem("glypher.cellSize.v1")) || 90;
+    return Number(window.localStorage.getItem("fontane.cellSize.v1") ?? window.localStorage.getItem("glypher.cellSize.v1")) || 90;
   });
 
   function updateCellSize(size: number) {
     setCellSize(size);
-    window.localStorage.setItem("glypher.cellSize.v1", String(size));
+    window.localStorage.setItem("fontane.cellSize.v1", String(size));
   }
 
   // A ratio, not an absolute pixel value — wide letters like "m" or "@" need
@@ -419,12 +419,12 @@ export default function Home() {
   // proportionally, and this only adjusts how wide relative to that.
   const [cellWidthRatio, setCellWidthRatio] = useState(() => {
     if (typeof window === "undefined") return 1;
-    return Number(window.localStorage.getItem("glypher.cellWidthRatio.v1")) || 1;
+    return Number(window.localStorage.getItem("fontane.cellWidthRatio.v1") ?? window.localStorage.getItem("glypher.cellWidthRatio.v1")) || 1;
   });
 
   function updateCellWidthRatio(ratio: number) {
     setCellWidthRatio(ratio);
-    window.localStorage.setItem("glypher.cellWidthRatio.v1", String(ratio));
+    window.localStorage.setItem("fontane.cellWidthRatio.v1", String(ratio));
   }
 
   const cellWidth = cellSize * cellWidthRatio;
@@ -449,32 +449,32 @@ export default function Home() {
   // reference vs. per-glyph type metrics).
   const [lineSpacing, setLineSpacing] = useState(() => {
     if (typeof window === "undefined") return 75;
-    return Number(window.localStorage.getItem("glypher.lineSpacing.v1")) || 75;
+    return Number(window.localStorage.getItem("fontane.lineSpacing.v1") ?? window.localStorage.getItem("glypher.lineSpacing.v1")) || 75;
   });
 
   function updateLineSpacing(spacing: number) {
     setLineSpacing(spacing);
-    window.localStorage.setItem("glypher.lineSpacing.v1", String(spacing));
+    window.localStorage.setItem("fontane.lineSpacing.v1", String(spacing));
   }
 
   const [editorText, setEditorText] = useState(() => {
     if (typeof window === "undefined") return "";
-    return window.localStorage.getItem("glypher.editorText.v1") ?? "";
+    return window.localStorage.getItem("fontane.editorText.v1") ?? window.localStorage.getItem("glypher.editorText.v1") ?? "";
   });
 
   function updateEditorText(text: string) {
     setEditorText(text);
-    window.localStorage.setItem("glypher.editorText.v1", text);
+    window.localStorage.setItem("fontane.editorText.v1", text);
   }
 
   const [editorFontSize, setEditorFontSize] = useState(() => {
     if (typeof window === "undefined") return DEFAULT_EDITOR_FONT_SIZE_PT;
-    return Number(window.localStorage.getItem("glypher.editorFontSize.v1")) || DEFAULT_EDITOR_FONT_SIZE_PT;
+    return Number(window.localStorage.getItem("fontane.editorFontSize.v1") ?? window.localStorage.getItem("glypher.editorFontSize.v1")) || DEFAULT_EDITOR_FONT_SIZE_PT;
   });
 
   function updateEditorFontSize(pt: number) {
     setEditorFontSize(pt);
-    window.localStorage.setItem("glypher.editorFontSize.v1", String(pt));
+    window.localStorage.setItem("fontane.editorFontSize.v1", String(pt));
   }
 
   function toggleCharacterSet(id: string) {
@@ -1396,31 +1396,31 @@ export default function Home() {
   function handleDownloadJson() {
     const blob = new Blob([exportJson], { type: "application/json" });
     saveFile(blob, {
-      suggestedName: "letterspace-document.json",
+      suggestedName: "fontane-document.json",
       mimeType: "application/json",
       extension: "json",
-      description: "letter.space document",
+      description: "Fontane document",
     });
   }
 
   function handleExportOtf() {
     if (!exportDoc) return;
-    downloadFont(exportDoc, "letterspace.otf");
+    downloadFont(exportDoc, "fontane.otf");
   }
 
   function handleExportSkeleton() {
     downloadSkeletonSvg(glyphs, completedRef.current);
   }
 
-  function handleDownloadGff() {
-    downloadProjectFile(glyphs, completedRef.current, metrics, settings, "untitled.gff");
+  function handleDownloadFff() {
+    downloadProjectFile(glyphs, completedRef.current, metrics, settings, "untitled.fff");
   }
 
-  function handleImportGffClick() {
-    gffInputRef.current?.click();
+  function handleImportFffClick() {
+    fffInputRef.current?.click();
   }
 
-  function handleImportGffChange(e: React.ChangeEvent<HTMLInputElement>) {
+  function handleImportFffChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     e.target.value = ""; // allow re-selecting the same file next time
     if (!file) return;
@@ -1459,7 +1459,7 @@ export default function Home() {
             aria-expanded={openMenu === "glypher"}
             onClick={() => setOpenMenu((m) => (m === "glypher" ? null : "glypher"))}
           >
-            Glypher
+            Fontane.Studio
           </button>
           {openMenu === "glypher" && (
             <div className={styles.dropdown} role="menu">
@@ -1499,11 +1499,11 @@ export default function Home() {
           </button>
           {openMenu === "file" && (
             <div className={styles.dropdown} role="menu">
-              <button type="button" role="menuitem" className={styles.dropdownItem} onClick={() => { handleImportGffClick(); setOpenMenu(null); }}>
-                Import GFF
+              <button type="button" role="menuitem" className={styles.dropdownItem} onClick={() => { handleImportFffClick(); setOpenMenu(null); }}>
+                Import FFF
               </button>
-              <button type="button" role="menuitem" className={styles.dropdownItem} onClick={() => { handleDownloadGff(); setOpenMenu(null); }}>
-                Export GFF
+              <button type="button" role="menuitem" className={styles.dropdownItem} onClick={() => { handleDownloadFff(); setOpenMenu(null); }}>
+                Export FFF
               </button>
               <button type="button" role="menuitem" className={styles.dropdownItem} onClick={() => { handleDownloadJson(); setOpenMenu(null); }}>
                 Export JSON
@@ -1733,10 +1733,10 @@ export default function Home() {
       </div>
 
       <input
-        ref={gffInputRef}
+        ref={fffInputRef}
         type="file"
-        accept=".gff,application/json"
-        onChange={handleImportGffChange}
+        accept=".fff,application/json"
+        onChange={handleImportFffChange}
         style={{ display: "none" }}
       />
 
@@ -2174,9 +2174,9 @@ export default function Home() {
             </div>
             {infoModal === "info" ? (
               <p className={styles.modalBody}>
-                Glypher turns your own handwriting into a usable font. Draw letters freehand or in the letter grid,
+                Fontane.Studio turns your own handwriting into a usable font. Draw letters freehand or in the letter grid,
                 tag strokes to characters, then export as OTF, JSON, or a skeleton SVG — or save your work as a
-                .gff project file to keep editing later.
+                .fff project file to keep editing later.
               </p>
             ) : (
               <ol className={styles.modalList}>
@@ -2184,7 +2184,7 @@ export default function Home() {
                 <li><strong>Select + Assign</strong> — lasso strokes in Free, then Assign them to a character.</li>
                 <li><strong>Refine</strong> — Nudge reshapes one stroke; Move/Rotate/Scale act on a selection (select first).</li>
                 <li><strong>Preview</strong> — compose text in Editor, or animate it in Anim.</li>
-                <li><strong>Export</strong> — File menu: OTF / JSON / Skeleton SVG, or GFF to save the whole project.</li>
+                <li><strong>Export</strong> — File menu: OTF / JSON / Skeleton SVG, or FFF to save the whole project.</li>
               </ol>
             )}
           </div>

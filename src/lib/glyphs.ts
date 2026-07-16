@@ -30,12 +30,13 @@ export function unicodeFor(name: string): string | undefined {
   return `U+${cp.toString(16).toUpperCase().padStart(4, "0")}`;
 }
 
-const STORAGE_KEY = "glypher.glyphs.v1";
+const STORAGE_KEY = "fontane.glyphs.v1";
+const LEGACY_STORAGE_KEY = "glypher.glyphs.v1"; // pre-rename data, read as a fallback so nothing is lost
 
 export function loadGlyphs(): Glyph[] {
   if (typeof window === "undefined") return [];
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
+    const raw = window.localStorage.getItem(STORAGE_KEY) ?? window.localStorage.getItem(LEGACY_STORAGE_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed : [];

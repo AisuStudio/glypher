@@ -1,4 +1,4 @@
-# letter.space → TTF export
+# Fontane → TTF export
 
 **Most people don't need this.** The Export tab in the web app has an
 "Export OTF" button that builds a font entirely client-side (via
@@ -7,11 +7,11 @@ script step. This local Python script is the alternative path for people who
 specifically want a real TrueType (`glyf`-table) `.ttf` instead of the
 in-app CFF-flavored `.otf`, or who want to script/batch the build.
 
-A local Python script that compiles a `letterspace-document.json` (Export tab
-→ Download JSON in the letter.space web app) into a real `.ttf` font — no
+A local Python script that compiles a `fontane-document.json` (Export tab
+→ Download JSON in the Fontane web app) into a real `.ttf` font — no
 Glyphs.app, no hosted backend, just `fontTools` on your own machine.
 
-**Why TTF, not OTF:** letter.space's exported outlines are quadratic curves
+**Why TTF, not OTF:** Fontane's exported outlines are quadratic curves
 (`M`/`Q`/`Z`, see `src/lib/contour.ts`), which is exactly what TrueType's
 `glyf` table stores natively. OTF/CFF wants cubic curves, which would mean an
 extra conversion step for no real benefit — a hand-lettering font doesn't
@@ -28,7 +28,7 @@ pip3 install fonttools
 ## Use
 
 ```bash
-python3 build_ttf.py letterspace-document.json output.ttf
+python3 build_ttf.py fontane-document.json output.ttf
 ```
 
 - `kind: "base"` glyphs get mapped in the font's cmap from their exported

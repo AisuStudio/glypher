@@ -1,6 +1,6 @@
-#MenuTitle: Import from letter.space
+#MenuTitle: Import from Fontane
 # -*- coding: utf-8 -*-
-"""Imports a letterspace-document.json (exported from the letter.space web
+"""Imports a fontane-document.json (exported from the Fontane web
 app) into the current font: creates/updates glyphs, sets Unicode for base
 characters, and builds each glyph's outline from the exported SVG contour
 paths."""
@@ -10,7 +10,7 @@ import re
 
 from GlyphsApp import Glyphs, GSGlyph, GSPath, GSNode, Message, GetOpenFile, LINE, OFFCURVE, QCURVE
 
-# Canvas pixels -> font units. letter.space's canvas has no notion of your
+# Canvas pixels -> font units. Fontane's canvas has no notion of your
 # font's metrics, so this is a starting guess, not a calibrated mapping.
 # Re-scale and reposition the first import in Glyphs, then adjust SCALE to
 # match.
@@ -77,10 +77,10 @@ def build_layer(entry, font, master_id):
 def main():
     font = Glyphs.font
     if font is None:
-        Message("Open a font in Glyphs first.", title="letter.space Import")
+        Message("Open a font in Glyphs first.", title="Fontane Import")
         return
 
-    filepath = GetOpenFile(message="Choose letterspace-document.json", filetypes=["json"])
+    filepath = GetOpenFile(message="Choose fontane-document.json", filetypes=["json"])
     if not filepath:
         return
 
@@ -121,7 +121,7 @@ def main():
 
     Message(
         "Imported %d glyph(s): %s%s" % (len(imported), ", ".join(imported), note),
-        title="letter.space Import",
+        title="Fontane Import",
     )
 
 
