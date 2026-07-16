@@ -2639,8 +2639,8 @@ export default function Home() {
                   Assign needed. Grid cells also show shared baseline/x-height/ascender/descender guides plus
                   draggable per-glyph left/right bearings, which feed real calibration into the font export. The
                   Draw and <strong>Brush</strong> tools both capture a pressure-varying stroke the same way — Brush
-                  exists for strokes that trace their own outline rather than a centerline, so it's left out of
-                  Nudge/Anchor editing and the Skeleton SVG export (see below), where a true centerline is what's
+                  exists for strokes that trace their own outline rather than a centerline, so it&apos;s left out of
+                  Nudge/Anchor editing and the Skeleton SVG export (see below), where a true centerline is what&apos;s
                   needed.
                 </li>
                 <li>
@@ -2649,15 +2649,15 @@ export default function Home() {
                   Alternate (a variant of an existing glyph). Cmd/Ctrl+Enter saves without reaching for the button.
                 </li>
                 <li>
-                  <strong>Reshape</strong> — <strong>Nudge</strong> drags a stroke's simplified anchor points to
+                  <strong>Reshape</strong> — <strong>Nudge</strong> drags a stroke&apos;s simplified anchor points to
                   reshape its curve. <strong>Anchor</strong> goes further: click an anchor to select it (it stays
-                  selected, unlike Nudge's drag-only grab), then Delete/Backspace removes it and splits the stroke
-                  in two at that point. With the Pen tool active on a stroke you're already editing, clicking
+                  selected, unlike Nudge&apos;s drag-only grab), then Delete/Backspace removes it and splits the stroke
+                  in two at that point. With the Pen tool active on a stroke you&apos;re already editing, clicking
                   between two anchors inserts a new one; clicking directly on one deletes it the same way.
                 </li>
                 <li>
-                  <strong>Transform</strong> — select strokes first (Select/Assign's lasso), then Move, Rotate, or
-                  Scale them as a group. Scale defaults to resizing from the selection's bottom-left corner,
+                  <strong>Transform</strong> — select strokes first (Select/Assign&apos;s lasso), then Move, Rotate, or
+                  Scale them as a group. Scale defaults to resizing from the selection&apos;s bottom-left corner,
                   independently per axis; hold <strong>Alt</strong> to scale from the center instead, and{" "}
                   <strong>Shift</strong> to lock proportions. Stroke thickness scales along with the geometry, so
                   resizing never leaves a shape looking disproportionately thick or thin. The Skew horizontal and
@@ -2671,17 +2671,17 @@ export default function Home() {
                 <li>
                   <strong>Export</strong> — File menu: <strong>OTF</strong> (a real, usable font, built entirely in
                   the browser), <strong>JSON</strong> (the compiled glyph document, for the local TTF script or the
-                  Glyphs.app import script), or <strong>Skeleton SVG</strong> (every glyph's raw centerline as an
+                  Glyphs.app import script), or <strong>Skeleton SVG</strong> (every glyph&apos;s raw centerline as an
                   open path, for hand-building outlines in Glyphs.app or similar — Brush strokes are left out of
-                  this one since they don't have a true centerline to export).
+                  this one since they don&apos;t have a true centerline to export).
                 </li>
                 <li>
                   <strong>FFF (Fontane Font File)</strong> — File → Export/Import FFF saves or reopens the whole
                   project: every stroke, glyph, metric, and setting, exactly as the editor keeps it. This is
-                  different from the OTF/JSON/Skeleton exports above, which are one-way — once a glyph's outlines
+                  different from the OTF/JSON/Skeleton exports above, which are one-way — once a glyph&apos;s outlines
                   are compiled, the raw pen strokes behind them are gone from that file. An FFF keeps the editable
                   source data instead, so you can save your work, close the tab, and pick up exactly where you left
-                  off (here, or on another machine) — it's the project save file, not a font.
+                  off (here, or on another machine) — it&apos;s the project save file, not a font.
                 </li>
               </ol>
             )}
