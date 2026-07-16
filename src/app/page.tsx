@@ -152,8 +152,9 @@ function bandFor(name: string, metrics: Metrics): { top: number; bottom: number 
 // the large Free canvas (e.g. x in the hundreds) — rendered as-is inside a
 // Grid cell's own small canvas (~90px), they land far outside the visible
 // area. Grid-native glyphs (drawn directly in a cell, cellWidth/cellHeight
-// set) are already calibrated to a cell and must pass through unchanged.
-// This rescales+recenters a bbox-fallback glyph's combined stroke bbox to
+// set) are calibrated to that recorded cell size — see fromAnchorSpace/
+// toAnchorSpace below for how they're kept in sync when Cell size/width
+// changes later. This rescales+recenters a bbox-fallback glyph's combined stroke bbox to
 // fit its own letter-appropriate guide band (x-height/ascender/descender —
 // a lowercase "a" belongs in the x-height, not stretched up to the full
 // ascender height) — same idea as layoutText.ts's bbox-fallback transform
@@ -183,6 +184,45 @@ function fitStrokesToCell(
   return glyphStrokes.map((s) =>
     s.points.map((p) => [p[0] * scale + offsetX, p[1] * scale + offsetY, p[2]] as StrokePoint)
   );
+}
+
+// A Grid-native glyph's stroke points are stored in the pixel space of
+// whatever Cell size/width was current the moment they were drawn (its
+// "anchor" — glyph.cellWidth/cellHeight). Without this, changing the
+// sliders later would resize the cell but leave existing letters frozen at
+// their old pixel size. fromAnchorSpace expands anchor-space points to fill
+// however big the cell renders right now (used for display); toAnchorSpace
+// is the inverse, converting a freshly-drawn/edited stroke's current-pixel-
+// space points back into that same anchor so every stroke of a glyph keeps
+// sharing one consistent coordinate system no matter when it was touched.
+function fromAnchorSpace(
+  points: StrokePoint[],
+  anchorWidth: number | undefined,
+  anchorHeight: number | undefined,
+  currentWidth: number,
+  currentHeight: number
+): StrokePoint[] {
+  if (!anchorWidth || !anchorHeight || (anchorWidth === currentWidth && anchorHeight === currentHeight)) {
+    return points;
+  }
+  const scaleX = currentWidth / anchorWidth;
+  const scaleY = currentHeight / anchorHeight;
+  return points.map(([x, y, p]) => [x * scaleX, y * scaleY, p] as StrokePoint);
+}
+
+function toAnchorSpace(
+  points: StrokePoint[],
+  anchorWidth: number | undefined,
+  anchorHeight: number | undefined,
+  currentWidth: number,
+  currentHeight: number
+): StrokePoint[] {
+  if (!anchorWidth || !anchorHeight || (anchorWidth === currentWidth && anchorHeight === currentHeight)) {
+    return points;
+  }
+  const scaleX = currentWidth / anchorWidth;
+  const scaleY = currentHeight / anchorHeight;
+  return points.map(([x, y, p]) => [x / scaleX, y / scaleY, p] as StrokePoint);
 }
 
 // Pivot for Move/Rotate/Scale: the bounding-box center across every
@@ -368,6 +408,19 @@ export default function Home() {
   function updateCellSize(size: number) {
     setCellSize(size);
     window.localStorage.setItem("glypher.cellSize.v1", String(size));
+  }
+
+  // Independent of cellSize (which drives cell height, see cellHeightPx) —
+  // wide letters like "m" or "@" need more horizontal room than tall/narrow
+  // ones without changing the vertical type metrics every cell shares.
+  const [cellWidth, setCellWidth] = useState(() => {
+    if (typeof window === "undefined") return 90;
+    return Number(window.localStorage.getItem("glypher.cellWidth.v1")) || 90;
+  });
+
+  function updateCellWidth(width: number) {
+    setCellWidth(width);
+    window.localStorage.setItem("glypher.cellWidth.v1", String(width));
   }
 
   // Free mode's ruled-line background — independent of Grid View's cellSize,
@@ -1215,10 +1268,23 @@ export default function Home() {
     }
   }
 
-  function handleGridStroke(letter: string, stroke: Stroke, cellWidth: number, cellHeight: number) {
+  function handleGridStroke(letter: string, stroke: Stroke, currentCellWidth: number, currentCellHeight: number) {
     pushUndoSnapshot();
-    completedRef.current = [...completedRef.current, stroke];
-    outlinesRef.current = [...outlinesRef.current, outlineFor(stroke.points, settingsRef.current)];
+    // Convert to the glyph's existing anchor space (if it already has one)
+    // before storing, so this stroke stays geometrically consistent with
+    // whatever other strokes it already has — even if Cell size/width has
+    // changed since those were drawn. See fromAnchorSpace/toAnchorSpace.
+    const existingGlyph = glyphsRef.current.find((g) => g.kind === "base" && g.name === letter);
+    const anchoredPoints = toAnchorSpace(
+      stroke.points,
+      existingGlyph?.cellWidth,
+      existingGlyph?.cellHeight,
+      currentCellWidth,
+      currentCellHeight
+    );
+    const anchoredStroke = anchoredPoints === stroke.points ? stroke : { ...stroke, points: anchoredPoints };
+    completedRef.current = [...completedRef.current, anchoredStroke];
+    outlinesRef.current = [...outlinesRef.current, outlineFor(anchoredStroke.points, settingsRef.current)];
     saveStrokes(completedRef.current);
     setStrokeCount(completedRef.current.length);
 
@@ -1228,19 +1294,19 @@ export default function Home() {
     setGlyphs((gs) => {
       const existing = gs.find((g) => g.kind === "base" && g.name === letter);
       if (existing) {
-        return gs.map((g) => (g.id === existing.id ? { ...g, strokeIds: [...g.strokeIds, stroke.id] } : g));
+        return gs.map((g) => (g.id === existing.id ? { ...g, strokeIds: [...g.strokeIds, anchoredStroke.id] } : g));
       }
       const glyph: Glyph = {
         id: `${Date.now()}-${Math.round(Math.random() * 1e6)}`,
         name: letter,
         kind: "base",
         unicode: unicodeFor(letter),
-        strokeIds: [stroke.id],
+        strokeIds: [anchoredStroke.id],
         createdAt: Date.now(),
         leftBearing: DEFAULT_LEFT_BEARING,
         rightBearing: DEFAULT_RIGHT_BEARING,
-        cellWidth,
-        cellHeight,
+        cellWidth: currentCellWidth,
+        cellHeight: currentCellHeight,
       };
       return [...gs, glyph];
     });
@@ -1253,14 +1319,20 @@ export default function Home() {
   function handleGridStrokesChange(
     letter: string,
     updates: { id: string; points: StrokePoint[] }[],
-    cellWidth: number,
-    cellHeight: number
+    currentCellWidth: number,
+    currentCellHeight: number
   ) {
     if (updates.length === 0) return;
     pushUndoSnapshot();
-    for (const { id, points } of updates) {
+    const glyph = glyphsRef.current.find((g) => g.kind === "base" && g.name === letter);
+    for (const { id, points: rawPoints } of updates) {
       const idx = completedRef.current.findIndex((s) => s.id === id);
       if (idx === -1) continue;
+      // Same anchor conversion as handleGridStroke — GridCell reports these
+      // points in current-cell pixel space, but they need to land back in
+      // the glyph's own fixed anchor space so fromAnchorSpace can keep
+      // expanding the whole glyph consistently on every future render.
+      const points = toAnchorSpace(rawPoints, glyph?.cellWidth, glyph?.cellHeight, currentCellWidth, currentCellHeight);
       completedRef.current[idx] = { ...completedRef.current[idx], points };
       outlinesRef.current[idx] = outlineFor(points, settingsRef.current);
     }
@@ -1273,11 +1345,11 @@ export default function Home() {
     // re-fit an already-fitted shape and drift further on every edit.
     // Promoting it to Grid-native (same cellWidth/cellHeight a fresh
     // Grid-drawn stroke gets) the moment it's edited here fixes its
-    // coordinates in this cell's space for good.
+    // anchor space for good — later renders/edits then rescale off of it.
     setGlyphs((gs) =>
       gs.map((g) =>
         g.kind === "base" && g.name === letter && !(g.cellWidth && g.cellHeight)
-          ? { ...g, cellWidth, cellHeight }
+          ? { ...g, cellWidth: currentCellWidth, cellHeight: currentCellHeight }
           : g
       )
     );
@@ -1659,6 +1731,18 @@ export default function Home() {
               <span className={styles.val}>{cellSize}</span>
             </label>
             <label className={styles.sliderRow}>
+              <span>Cell width</span>
+              <input
+                type="range"
+                min={60}
+                max={400}
+                step={10}
+                value={cellWidth}
+                onChange={(e) => updateCellWidth(Number(e.target.value))}
+              />
+              <span className={styles.val}>{cellWidth}</span>
+            </label>
+            <label className={styles.sliderRow}>
               <span>Ascender</span>
               <input
                 type="range"
@@ -1919,7 +2003,15 @@ export default function Home() {
       {topMode === "draw" && drawStyle === "grid" && (
         <div
           className={styles.grid}
-          style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${cellSize}px, 1fr))` }}
+          style={{
+            // Fixed track sizes (no 1fr stretch) so a cell's actual rendered
+            // pixel size always matches cellWidth/cellHeightPx exactly — the
+            // anchor-space rescale math (fromAnchorSpace/toAnchorSpace)
+            // assumes that equivalence and drifts if the grid is free to
+            // stretch columns to fill leftover row width.
+            gridTemplateColumns: `repeat(auto-fill, ${cellWidth}px)`,
+            gridAutoRows: `${cellSize * CELL_ASPECT_RATIO}px`,
+          }}
         >
           {gridChars.map((letter) => {
             const glyph = glyphs.find((g) => g.kind === "base" && g.name === letter);
@@ -1931,8 +2023,8 @@ export default function Home() {
             const needsFit = glyph && !(glyph.cellWidth && glyph.cellHeight);
             const cellHeightPx = cellSize * CELL_ASPECT_RATIO;
             const fittedPoints = needsFit
-              ? fitStrokesToCell(glyphStrokes, letter, cellSize, cellHeightPx, metrics)
-              : glyphStrokes.map((s) => s.points);
+              ? fitStrokesToCell(glyphStrokes, letter, cellWidth, cellHeightPx, metrics)
+              : glyphStrokes.map((s) => fromAnchorSpace(s.points, glyph?.cellWidth, glyph?.cellHeight, cellWidth, cellHeightPx));
             const cellStrokes = glyphStrokes.map((s, i) => ({ id: s.id, points: fittedPoints[i] }));
             return (
               <GridCell
@@ -1941,10 +2033,10 @@ export default function Home() {
                 strokes={cellStrokes}
                 tool={(FREE_ONLY_TOOLS.has(drawTool) ? "pen" : drawTool) as CellTool}
                 onErase={(ids) => deleteStrokes(ids)}
-                onStrokesChange={(updates) => handleGridStrokesChange(letter, updates, cellSize, cellHeightPx)}
+                onStrokesChange={(updates) => handleGridStrokesChange(letter, updates, cellWidth, cellHeightPx)}
                 strokeOptions={optionsFor(settings)}
-                onStrokeComplete={(stroke, cellWidth, cellHeight) =>
-                  handleGridStroke(letter, stroke, cellWidth, cellHeight)
+                onStrokeComplete={(stroke, reportedWidth, reportedHeight) =>
+                  handleGridStroke(letter, stroke, reportedWidth, reportedHeight)
                 }
                 metrics={metrics}
                 leftBearing={glyph?.leftBearing}

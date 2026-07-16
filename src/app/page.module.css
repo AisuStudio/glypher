@@ -589,10 +589,12 @@
 }
 
 .gridCell {
+  /* Width comes from .grid's grid-template-columns, height from its
+     grid-auto-rows — both driven independently by the Cell width/Cell size
+     sliders (see page.tsx), not a fixed aspect-ratio. */
   position: relative;
   display: flex;
   flex-direction: column;
-  aspect-ratio: 9 / 16;
   background: var(--color-vanilla);
   touch-action: none;
 }
