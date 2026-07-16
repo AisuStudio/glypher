@@ -629,6 +629,19 @@ export default function Home() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const selectedIdsRef = useRef<Set<string>>(new Set());
 
+  // Skew H/V: a live shear (not a drag gesture) applied to the current
+  // selection around its bbox center. Both sliders recompute from ONE frozen
+  // pre-skew snapshot each time (never from the already-sheared points), so
+  // the two axes combine cleanly and repeated small slider ticks don't drift.
+  // Snapshot is retaken (and both angles reset to 0) whenever the selection
+  // itself changes — skew is always relative to "the selection as it is now".
+  const [skewH, setSkewH] = useState(0);
+  const [skewV, setSkewV] = useState(0);
+  const skewSnapshotRef = useRef<{ pivotX: number; pivotY: number; snapshot: Map<string, StrokePoint[]> } | null>(
+    null
+  );
+  const skewUndoPushedRef = useRef(false);
+
   const [animateText, setAnimateText] = useState("");
   const [animatePresetId, setAnimatePresetId] = useState<AnimationPresetId>(DEFAULT_PRESET_ID);
 
@@ -1022,6 +1035,20 @@ export default function Home() {
 
   useEffect(() => {
     selectedIdsRef.current = new Set(selectedIds);
+    if (selectedIds.length === 0) {
+      skewSnapshotRef.current = null;
+    } else {
+      const selected = completedRef.current.filter((s) => selectedIds.includes(s.id));
+      const pivot = selectionPivot(selected);
+      skewSnapshotRef.current = {
+        pivotX: pivot.x,
+        pivotY: pivot.y,
+        snapshot: new Map(selected.map((s) => [s.id, s.points.map((p) => [...p] as StrokePoint)])),
+      };
+    }
+    setSkewH(0);
+    setSkewV(0);
+    skewUndoPushedRef.current = false;
     redrawRef.current();
   }, [selectedIds]);
 
@@ -1177,6 +1204,50 @@ export default function Home() {
 
   function updateSetting<K extends keyof StrokeSettings>(key: K, value: StrokeSettings[K]) {
     setSettings((s) => ({ ...s, [key]: value }));
+  }
+
+  // Shears the selection around its bbox center, always recomputed from the
+  // ONE pre-skew snapshot captured when the selection was made (see the
+  // [selectedIds] effect above) — a proper combined shear matrix using each
+  // point's ORIGINAL offset from the pivot for both axes, so horizontal and
+  // vertical skew combine cleanly regardless of slider order, and repeated
+  // small ticks never compound/drift.
+  function applySkew(hDeg: number, vDeg: number) {
+    const snap = skewSnapshotRef.current;
+    if (!snap) return;
+    const kH = Math.tan((hDeg * Math.PI) / 180);
+    const kV = Math.tan((vDeg * Math.PI) / 180);
+    for (const [id, points] of snap.snapshot) {
+      const idx = completedRef.current.findIndex((s) => s.id === id);
+      if (idx === -1) continue;
+      const stroke = completedRef.current[idx];
+      stroke.points = points.map(([px, py, pressure]) => {
+        const dx = px - snap.pivotX;
+        const dy = py - snap.pivotY;
+        return [snap.pivotX + dx + kH * dy, snap.pivotY + dy + kV * dx, pressure] as StrokePoint;
+      });
+      outlinesRef.current[idx] = outlineFor(stroke.points, effectiveSettingsFor(stroke, settingsRef.current));
+    }
+    saveStrokes(completedRef.current);
+    redrawRef.current();
+  }
+
+  function updateSkewH(hDeg: number) {
+    if (!skewUndoPushedRef.current) {
+      pushUndoSnapshot();
+      skewUndoPushedRef.current = true;
+    }
+    setSkewH(hDeg);
+    applySkew(hDeg, skewV);
+  }
+
+  function updateSkewV(vDeg: number) {
+    if (!skewUndoPushedRef.current) {
+      pushUndoSnapshot();
+      skewUndoPushedRef.current = true;
+    }
+    setSkewV(vDeg);
+    applySkew(skewH, vDeg);
   }
 
   function handleAssign() {
@@ -2169,6 +2240,34 @@ export default function Home() {
                   onChange={(e) => updateLineSpacing(Number(e.target.value))}
                 />
                 <span className={styles.val}>{lineSpacing}</span>
+              </label>
+            </div>
+          )}
+          {topMode === "draw" && drawStyle === "free" && selectedIds.length > 0 && (
+            <div className={styles.sliders}>
+              <label className={styles.sliderRow}>
+                <span>Skew horizontal</span>
+                <input
+                  type="range"
+                  min={-75}
+                  max={75}
+                  step={1}
+                  value={skewH}
+                  onChange={(e) => updateSkewH(Number(e.target.value))}
+                />
+                <span className={styles.val}>{skewH}°</span>
+              </label>
+              <label className={styles.sliderRow}>
+                <span>Skew vertical</span>
+                <input
+                  type="range"
+                  min={-75}
+                  max={75}
+                  step={1}
+                  value={skewV}
+                  onChange={(e) => updateSkewV(Number(e.target.value))}
+                />
+                <span className={styles.val}>{skewV}°</span>
               </label>
             </div>
           )}
