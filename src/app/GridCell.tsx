@@ -6,19 +6,19 @@ import styles from "./page.module.css";
 import { outlineToPath, skeletonToPath, type PathCommand } from "@/lib/contour";
 import { pointInPolygon, anyPointInPolygon } from "@/lib/geometry";
 import { simplifyStrokeIndices } from "@/lib/simplify";
-import type { StrokePoint } from "@/lib/strokes";
+import type { StrokeKind, StrokePoint } from "@/lib/strokes";
 import type { Metrics } from "@/lib/metrics";
 import { unicodeFor } from "@/lib/glyphs";
 
 export type StrokeOptions = { size: number; thinning: number; smoothing: number; streamline: number };
-export type CellTool = "pen" | "eraser" | "select" | "nudge" | "move" | "rotate" | "scale";
+export type CellTool = "pen" | "brush" | "eraser" | "select" | "nudge" | "move" | "rotate" | "scale";
 // Raw points now, not a precomputed outline — Nudge/Move/Rotate/Scale need
 // the real geometry to reshape/transform; the cell computes its own outline
 // from these via outlineFor() below, the same split Free's own canvas uses.
 // widthScale mirrors page.tsx's Stroke field — a Scale gesture bakes its
 // magnitude in here so thickness scales with the shape instead of staying
 // fixed; undefined (pre-existing strokes) === 1.
-export type CellStroke = { id: string; points: StrokePoint[]; widthScale?: number };
+export type CellStroke = { id: string; points: StrokePoint[]; widthScale?: number; kind?: StrokeKind };
 
 const CELL_COLOR = "#1f1934";
 const SELECTED_COLOR = "#d8ff01"; // lemon — matches Free canvas's selection color
@@ -169,7 +169,7 @@ type Props = {
   onStrokesChange: (updates: { id: string; points: StrokePoint[]; widthScale?: number }[]) => void;
   strokeOptions: StrokeOptions;
   onStrokeComplete: (
-    stroke: { id: string; points: StrokePoint[]; createdAt: number },
+    stroke: { id: string; points: StrokePoint[]; createdAt: number; kind?: StrokeKind },
     cellWidth: number,
     cellHeight: number
   ) => void;
@@ -415,6 +415,9 @@ export default function GridCell({
       }
       for (let i = strokesRef.current.length - 1; i >= 0; i--) {
         const s = strokesRef.current[i];
+        // A brush stroke's points trace its own edge, not a true centerline
+        // — skip it, same as page.tsx's own Nudge/Anchor gating.
+        if ((s.kind ?? "pen") === "brush") continue;
         if (pointInPolygon([x, y], outlineFor(s.points, effectiveOptionsFor(s, strokeOptionsRef.current)))) {
           editingStrokeIdRef.current = s.id;
           anchorIndicesRef.current = simplifyStrokeIndices(s.points.map((p) => [p[0], p[1]]));
@@ -658,6 +661,7 @@ export default function GridCell({
               id: `${Date.now()}-${Math.round(Math.random() * 1e6)}`,
               points: pointsRef.current,
               createdAt: Date.now(),
+              kind: toolRef.current === "brush" ? "brush" : "pen",
             },
             canvas!.clientWidth,
             canvas!.clientHeight

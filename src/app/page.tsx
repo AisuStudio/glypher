@@ -18,6 +18,7 @@ import { layoutText } from "@/lib/layoutText";
 import {
   Undo2,
   Redo2,
+  Pencil,
   Brush,
   Eraser,
   LineSquiggle,
@@ -52,7 +53,7 @@ type DrawStyle = "free" | "grid" | "editor";
 // Assign keeps the exact same gesture plus its own tag-form panel, so the
 // two share the lasso code paths (see LASSO_TOOLS) rather than duplicating
 // them.
-type DrawTool = "pen" | "eraser" | "nudge" | "anchor" | "assign" | "select" | "move" | "rotate" | "scale" | "pan";
+type DrawTool = "pen" | "brush" | "eraser" | "nudge" | "anchor" | "assign" | "select" | "move" | "rotate" | "scale" | "pan";
 // The 5 menu-bar dropdowns — "charset" (the Grid context bar's Character
 // sets picker) is a separate, click-only dropdown, not part of the hover
 // group below.
@@ -84,7 +85,8 @@ const FREE_ONLY_TOOLS = new Set<DrawTool>(["assign", "pan", "anchor"]);
 // tool so none of the three can drift out of sync with each other.
 type ToolDef = { value: DrawTool; label: string; icon: typeof Brush; shortcut: string };
 const TOOL_DEFS: ToolDef[] = [
-  { value: "pen", label: "Draw", icon: Brush, shortcut: "b" },
+  { value: "pen", label: "Draw", icon: Pencil, shortcut: "b" },
+  { value: "brush", label: "Brush", icon: Brush, shortcut: "u" },
   { value: "eraser", label: "Erase", icon: Eraser, shortcut: "e" },
   { value: "select", label: "Select", icon: Lasso, shortcut: "l" },
   { value: "nudge", label: "Nudge", icon: SplinePointer, shortcut: "n" },
@@ -982,6 +984,7 @@ export default function Home() {
             id: `${Date.now()}-${Math.round(Math.random() * 1e6)}`,
             points: currentPointsRef.current,
             createdAt: Date.now(),
+            kind: drawToolRef.current === "brush" ? "brush" : "pen",
           };
           completedRef.current = [...completedRef.current, stroke];
           outlinesRef.current = [...outlinesRef.current, outlineFor(stroke.points, settingsRef.current)];
@@ -1430,8 +1433,12 @@ export default function Home() {
     }
 
     for (let i = completedRef.current.length - 1; i >= 0; i--) {
+      const stroke = completedRef.current[i];
+      // A brush stroke's points trace its own edge, not a true centerline —
+      // editing them as if they were one wouldn't reshape the visible ink
+      // sensibly. Skip silently, same as clicking empty space would.
+      if ((stroke.kind ?? "pen") === "brush") continue;
       if (pointInPolygon([x, y], outlinesRef.current[i])) {
-        const stroke = completedRef.current[i];
         editingStrokeIdRef.current = stroke.id;
         anchorIndicesRef.current = simplifyStrokeIndices(stroke.points.map((p) => [p[0], p[1]]));
         resampledRef.current = false;
@@ -1463,8 +1470,9 @@ export default function Home() {
       }
     }
     for (let i = completedRef.current.length - 1; i >= 0; i--) {
+      const stroke = completedRef.current[i];
+      if ((stroke.kind ?? "pen") === "brush") continue;
       if (pointInPolygon([x, y], outlinesRef.current[i])) {
-        const stroke = completedRef.current[i];
         editingStrokeIdRef.current = stroke.id;
         anchorIndicesRef.current = simplifyStrokeIndices(stroke.points.map((p) => [p[0], p[1]]));
         resampledRef.current = false;

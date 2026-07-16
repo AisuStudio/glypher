@@ -1,5 +1,7 @@
 export type StrokePoint = [x: number, y: number, pressure: number];
 
+export type StrokeKind = "pen" | "brush";
+
 export type Stroke = {
   id: string;
   points: StrokePoint[];
@@ -8,6 +10,11 @@ export type Stroke = {
   // thickness scales with its own geometry instead of every stroke sharing
   // one fixed global size. Undefined (pre-existing/imported strokes) === 1.
   widthScale?: number;
+  // Which tool drew this. Undefined (pre-existing/imported strokes) === "pen".
+  // A brush stroke's points trace its own edge, not a true centerline — see
+  // exportSkeleton.ts and the Nudge/Anchor tools, both of which treat
+  // stroke.points as a centerline and skip brush strokes accordingly.
+  kind?: StrokeKind;
 };
 
 const STORAGE_KEY = "fontane.strokes.v1";
