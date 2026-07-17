@@ -52,6 +52,14 @@ function outlineFor(points: StrokePoint[], settings: StrokeSettings): [number, n
   return getStroke(points, optionsFor(settings)) as [number, number][];
 }
 
+// The composed glyph geometry below is uniformly rescaled by sizeFactor (see
+// the transformed-points map in draw()) — without this, stroke thickness
+// stays pinned to the global settings.size regardless of the chosen point
+// size, so text looks razor-thin at large sizes and blobby at small ones.
+function effectiveSettingsFor(settings: StrokeSettings, scale: number): StrokeSettings {
+  return scale === 1 ? settings : { ...settings, size: settings.size * scale };
+}
+
 function applyPath(ctx: CanvasRenderingContext2D, commands: PathCommand[]) {
   for (const c of commands) {
     if (c.type === "M") ctx.moveTo(c.x, c.y);
@@ -151,7 +159,7 @@ export default function EditorPanel({
               (p[1] * entry.scale + entry.offsetY + lineY) * sizeFactor,
               p[2],
             ]);
-            fillOutline(ctx!, outlineFor(transformed, settings));
+            fillOutline(ctx!, outlineFor(transformed, effectiveSettingsFor(settings, sizeFactor)));
           }
         }
 
