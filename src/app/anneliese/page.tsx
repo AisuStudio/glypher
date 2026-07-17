@@ -1,26 +1,38 @@
-import { redis } from "@/lib/kv";
+import { getSupabase } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
 // Deliberately not in any nav/sitemap and not disallowed in robots.txt either
 // (a Disallow would just draw attention to it) — reachable only by URL.
 export const metadata = { robots: { index: false, follow: false } };
 
+// Client-side aggregation over raw rows — fine at this project's traffic
+// scale (a few hundred/thousand rows). If that ever stops being true, move
+// these three aggregates into a Postgres view/RPC instead of fetching rows.
 async function getStats() {
+  const supabase = getSupabase();
+  if (!supabase) {
+    return { visitorCount: 0, avgSeconds: 0, exportsByFormat: {} as Record<string, number>, ok: false as const };
+  }
+
   try {
-    const [visitorCount, totalSeconds, sessionCount, exportsByFormat] = await Promise.all([
-      redis.scard("fontane:visitors"),
-      redis.get<number>("fontane:time_total_seconds"),
-      redis.get<number>("fontane:time_sessions"),
-      redis.hgetall<Record<string, string>>("fontane:exports_by_format"),
+    const [{ data: pageviews }, { data: durations }, { data: exports }] = await Promise.all([
+      supabase.from("fontane_events").select("visitor_id").eq("type", "pageview"),
+      supabase.from("fontane_events").select("seconds").eq("type", "duration"),
+      supabase.from("fontane_events").select("format").eq("type", "export"),
     ]);
-    return {
-      visitorCount: visitorCount ?? 0,
-      avgSeconds: sessionCount && totalSeconds ? Math.round(totalSeconds / sessionCount) : 0,
-      exportsByFormat: exportsByFormat ?? {},
-      ok: true as const,
-    };
+
+    const visitorCount = new Set((pageviews ?? []).map((r) => r.visitor_id)).size;
+    const seconds = (durations ?? []).map((r) => r.seconds).filter((s): s is number => s != null);
+    const avgSeconds = seconds.length ? Math.round(seconds.reduce((a, b) => a + b, 0) / seconds.length) : 0;
+    const exportsByFormat: Record<string, number> = {};
+    for (const row of exports ?? []) {
+      if (!row.format) continue;
+      exportsByFormat[row.format] = (exportsByFormat[row.format] ?? 0) + 1;
+    }
+
+    return { visitorCount, avgSeconds, exportsByFormat, ok: true as const };
   } catch {
-    return { visitorCount: 0, avgSeconds: 0, exportsByFormat: {}, ok: false as const };
+    return { visitorCount: 0, avgSeconds: 0, exportsByFormat: {} as Record<string, number>, ok: false as const };
   }
 }
 
@@ -53,7 +65,7 @@ export default async function AnnelieseePage() {
 
         {!stats.ok && (
           <p style={{ color: "#5100ff", marginBottom: 24 }}>
-            Storage isn&apos;t connected yet (no Redis integration in Vercel) — showing zeros.
+            Storage isn&apos;t connected yet (Supabase env vars missing) — showing zeros.
           </p>
         )}
 

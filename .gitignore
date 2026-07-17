@@ -42,3 +42,4 @@ next-env.d.ts
 
 # python bytecode cache (from testing font-build/*.py locally)
 __pycache__/
+.claude/
