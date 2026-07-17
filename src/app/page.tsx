@@ -59,6 +59,14 @@ type DrawTool = "pen" | "brush" | "eraser" | "nudge" | "anchor" | "assign" | "se
 // sets picker) is a separate, click-only dropdown, not part of the hover
 // group below.
 type MenuKey = "glypher" | "file" | "edit" | "view" | "tools" | "charset";
+// One entry per Grid cell — the fixed character sets contribute one slot
+// per character (kind always "base"), and a user can append arbitrary extra
+// slots (ligatures, alternates, or a one-off base symbol outside any set) via
+// the Character Sets dropdown's "Add glyph" form. A slot only describes what
+// cell to show and, for a brand-new glyph, what to tag it as on first stroke
+// (see handleGridStroke) — components/alternateOf are otherwise unused once
+// the underlying Glyph already exists.
+type GridSlot = { name: string; kind: GlyphKind; components?: string[]; alternateOf?: string };
 // Tools whose pointerdown-through-pointerup gesture on empty/stroke space is
 // "drag out a lasso and replace selectedIds with whatever it enclosed".
 const LASSO_TOOLS = new Set<DrawTool>(["assign", "select"]);
@@ -431,7 +439,52 @@ export default function Home() {
   // not a short action list.
   const [infoModal, setInfoModal] = useState<"info" | "howto" | null>(null);
   const [activeSetIds, setActiveSetIds] = useState<Set<string>>(new Set(DEFAULT_CHARACTER_SET_IDS));
-  const gridChars = CHARACTER_SETS.filter((s) => activeSetIds.has(s.id)).flatMap((s) => s.chars);
+  // Extra Grid cells beyond the fixed character sets — this is the only way
+  // to get a ligature/alternate slot into Grid view at all (Free mode's
+  // Assign panel already supports both kinds via lasso-tagging; Grid drawing
+  // fuses capture+tagging per cell, so it needs its own slot list instead).
+  const [extraGridSlots, setExtraGridSlots] = useState<GridSlot[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const raw = window.localStorage.getItem("fontane.extraGridSlots.v1");
+      return raw ? (JSON.parse(raw) as GridSlot[]) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  function addGridSlot(slot: GridSlot) {
+    // A "base" name already covered by an active fixed set would collide
+    // with that set's own cell (same kind+name → same React key, same
+    // glyph lookup) — silently skip rather than render a duplicate cell.
+    const collidesWithFixedSet =
+      slot.kind === "base" && CHARACTER_SETS.some((s) => activeSetIds.has(s.id) && s.chars.includes(slot.name));
+    if (collidesWithFixedSet) return;
+    setExtraGridSlots((prev) => {
+      if (prev.some((s) => s.name === slot.name && s.kind === slot.kind)) return prev;
+      const next = [...prev, slot];
+      window.localStorage.setItem("fontane.extraGridSlots.v1", JSON.stringify(next));
+      return next;
+    });
+  }
+
+  // Only removes the cell from Grid's visible slot list — the underlying
+  // Glyph and its strokes (if any were drawn) are untouched, so re-adding
+  // the same name+kind later picks up right where it left off.
+  function removeGridSlot(name: string, kind: GlyphKind) {
+    setExtraGridSlots((prev) => {
+      const next = prev.filter((s) => !(s.name === name && s.kind === kind));
+      window.localStorage.setItem("fontane.extraGridSlots.v1", JSON.stringify(next));
+      return next;
+    });
+  }
+
+  const gridSlots: GridSlot[] = [
+    ...CHARACTER_SETS.filter((s) => activeSetIds.has(s.id))
+      .flatMap((s) => s.chars)
+      .map((name): GridSlot => ({ name, kind: "base" })),
+    ...extraGridSlots,
+  ];
   const [metrics, setMetrics] = useState<Metrics>(() => loadMetrics());
   const [cellSize, setCellSize] = useState(() => {
     if (typeof window === "undefined") return 90;
@@ -482,11 +535,11 @@ export default function Home() {
   // until a cell has reported in at least once (first paint).
   const [cellDims, setCellDims] = useState<Record<string, { width: number; height: number }>>({});
 
-  function handleCellResize(letter: string, width: number, height: number) {
+  function handleCellResize(cellKey: string, width: number, height: number) {
     setCellDims((prev) => {
-      const existing = prev[letter];
+      const existing = prev[cellKey];
       if (existing && existing.width === width && existing.height === height) return prev;
-      return { ...prev, [letter]: { width, height } };
+      return { ...prev, [cellKey]: { width, height } };
     });
   }
 
@@ -1358,6 +1411,27 @@ export default function Home() {
     }
   }
 
+  // Grid's own version of handleAssign — instead of tagging an existing
+  // lasso selection, this just adds an empty cell to draw into (Grid fuses
+  // capture+tagging on first stroke, so there's nothing to select yet).
+  // Shares nameInput/kindInput/componentsInput/alternateOfInput with Free's
+  // Assign panel since the two forms are never visible at the same time.
+  function handleAddGridSlot() {
+    const name = nameInput.trim();
+    if (!name) return;
+    addGridSlot({
+      name,
+      kind: kindInput,
+      ...(kindInput === "ligature"
+        ? { components: componentsInput.split(/[\s,]+/).map((c) => c.trim()).filter(Boolean) }
+        : {}),
+      ...(kindInput === "alternate" ? { alternateOf: alternateOfInput.trim() || undefined } : {}),
+    });
+    setNameInput("");
+    setComponentsInput("");
+    setAlternateOfInput("");
+  }
+
   function handleUntag(id: string) {
     setGlyphs((gs) => gs.filter((g) => g.id !== id));
   }
@@ -1721,13 +1795,13 @@ export default function Home() {
     }
   }
 
-  function handleGridStroke(letter: string, stroke: Stroke, currentCellWidth: number, currentCellHeight: number) {
+  function handleGridStroke(slot: GridSlot, stroke: Stroke, currentCellWidth: number, currentCellHeight: number) {
     pushUndoSnapshot();
     // Convert to the glyph's existing anchor space (if it already has one)
     // before storing, so this stroke stays geometrically consistent with
     // whatever other strokes it already has — even if Cell size/width has
     // changed since those were drawn. See fromAnchorSpace/toAnchorSpace.
-    const existingGlyph = glyphsRef.current.find((g) => g.kind === "base" && g.name === letter);
+    const existingGlyph = glyphsRef.current.find((g) => g.kind === slot.kind && g.name === slot.name);
     const anchoredPoints = toAnchorSpace(
       stroke.points,
       existingGlyph?.cellWidth,
@@ -1746,21 +1820,23 @@ export default function Home() {
     // glyph, no separate lasso-select step. First stroke creates the glyph,
     // later strokes into the same cell just add to it.
     setGlyphs((gs) => {
-      const existing = gs.find((g) => g.kind === "base" && g.name === letter);
+      const existing = gs.find((g) => g.kind === slot.kind && g.name === slot.name);
       if (existing) {
         return gs.map((g) => (g.id === existing.id ? { ...g, strokeIds: [...g.strokeIds, anchoredStroke.id] } : g));
       }
       const glyph: Glyph = {
         id: `${Date.now()}-${Math.round(Math.random() * 1e6)}`,
-        name: letter,
-        kind: "base",
-        unicode: unicodeFor(letter),
+        name: slot.name,
+        kind: slot.kind,
         strokeIds: [anchoredStroke.id],
         createdAt: Date.now(),
         leftBearing: DEFAULT_LEFT_BEARING,
         rightBearing: DEFAULT_RIGHT_BEARING,
         cellWidth: currentCellWidth,
         cellHeight: currentCellHeight,
+        ...(slot.kind === "base" ? { unicode: unicodeFor(slot.name) } : {}),
+        ...(slot.kind === "ligature" ? { components: slot.components ?? [] } : {}),
+        ...(slot.kind === "alternate" ? { alternateOf: slot.alternateOf } : {}),
       };
       return [...gs, glyph];
     });
@@ -1771,14 +1847,14 @@ export default function Home() {
   // own Nudge/transform tools already use (patch by index, then save) —
   // just driven by ids reported up from the cell instead of a local ref.
   function handleGridStrokesChange(
-    letter: string,
+    slot: GridSlot,
     updates: { id: string; points: StrokePoint[]; widthScale?: number }[],
     currentCellWidth: number,
     currentCellHeight: number
   ) {
     if (updates.length === 0) return;
     pushUndoSnapshot();
-    const glyph = glyphsRef.current.find((g) => g.kind === "base" && g.name === letter);
+    const glyph = glyphsRef.current.find((g) => g.kind === slot.kind && g.name === slot.name);
     for (const { id, points: rawPoints, widthScale } of updates) {
       const idx = completedRef.current.findIndex((s) => s.id === id);
       if (idx === -1) continue;
@@ -1809,16 +1885,16 @@ export default function Home() {
     // anchor space for good — later renders/edits then rescale off of it.
     setGlyphs((gs) =>
       gs.map((g) =>
-        g.kind === "base" && g.name === letter && !(g.cellWidth && g.cellHeight)
+        g.kind === slot.kind && g.name === slot.name && !(g.cellWidth && g.cellHeight)
           ? { ...g, cellWidth: currentCellWidth, cellHeight: currentCellHeight }
           : g
       )
     );
   }
 
-  function handleBearingsChange(letter: string, left: number, right: number) {
+  function handleBearingsChange(slot: GridSlot, left: number, right: number) {
     setGlyphs((gs) =>
-      gs.map((g) => (g.kind === "base" && g.name === letter ? { ...g, leftBearing: left, rightBearing: right } : g))
+      gs.map((g) => (g.kind === slot.kind && g.name === slot.name ? { ...g, leftBearing: left, rightBearing: right } : g))
     );
   }
 
@@ -2093,6 +2169,114 @@ export default function Home() {
                     {set.label}
                   </label>
                 ))}
+
+                {extraGridSlots.length > 0 && (
+                  <div className={styles.extraGlyphList}>
+                    {extraGridSlots.map((slot) => (
+                      <div key={`${slot.kind}:${slot.name}`} className={styles.extraGlyphRow}>
+                        <span>
+                          {slot.name} <span className={styles.glyphMeta}>({slot.kind})</span>
+                        </span>
+                        <button
+                          type="button"
+                          className={styles.extraGlyphRemove}
+                          onClick={() => removeGridSlot(slot.name, slot.kind)}
+                          aria-label={`Remove ${slot.name}`}
+                          title="Remove from Grid (keeps any strokes already drawn)"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* A ligature/alternate has nothing to lasso-select the way
+                    Free's Assign panel does — Grid fuses capture+tagging per
+                    cell, so this just appends an empty slot to draw into. */}
+                <div className={styles.extraGlyphForm}>
+                  <input
+                    type="text"
+                    className={styles.nameInput}
+                    placeholder={
+                      kindInput === "base"
+                        ? "character (e.g. a, é)"
+                        : kindInput === "ligature"
+                          ? "name (e.g. f_i.liga)"
+                          : "name (e.g. a.alt01)"
+                    }
+                    value={nameInput}
+                    onChange={(e) => setNameInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        handleAddGridSlot();
+                      }
+                    }}
+                  />
+                  <div className={styles.modeToggle} role="radiogroup" aria-label="Glyph kind">
+                    <button
+                      type="button"
+                      role="radio"
+                      aria-checked={kindInput === "base"}
+                      className={`${styles.modeBtn} ${kindInput === "base" ? styles.modeBtnActive : ""}`}
+                      onClick={() => setKindInput("base")}
+                    >
+                      Base
+                    </button>
+                    <button
+                      type="button"
+                      role="radio"
+                      aria-checked={kindInput === "ligature"}
+                      className={`${styles.modeBtn} ${kindInput === "ligature" ? styles.modeBtnActive : ""}`}
+                      onClick={() => setKindInput("ligature")}
+                    >
+                      Ligature
+                    </button>
+                    <button
+                      type="button"
+                      role="radio"
+                      aria-checked={kindInput === "alternate"}
+                      className={`${styles.modeBtn} ${kindInput === "alternate" ? styles.modeBtnActive : ""}`}
+                      onClick={() => setKindInput("alternate")}
+                    >
+                      Alternate
+                    </button>
+                  </div>
+                  {kindInput === "ligature" && (
+                    <input
+                      type="text"
+                      className={styles.nameInput}
+                      placeholder="components (e.g. f, i)"
+                      value={componentsInput}
+                      onChange={(e) => setComponentsInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          handleAddGridSlot();
+                        }
+                      }}
+                    />
+                  )}
+                  {kindInput === "alternate" && (
+                    <input
+                      type="text"
+                      className={styles.nameInput}
+                      placeholder="alternate of (e.g. a)"
+                      value={alternateOfInput}
+                      onChange={(e) => setAlternateOfInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          handleAddGridSlot();
+                        }
+                      }}
+                    />
+                  )}
+                  <button type="button" className={styles.clearBtn} onClick={handleAddGridSlot} disabled={!nameInput.trim()}>
+                    Add Glyph
+                  </button>
+                </div>
               </div>
             )}
           </div>
@@ -2215,8 +2399,10 @@ export default function Home() {
             gridAutoRows: `${cellSize * CELL_ASPECT_RATIO}px`,
           }}
         >
-          {gridChars.map((letter) => {
-            const glyph = glyphs.find((g) => g.kind === "base" && g.name === letter);
+          {gridSlots.map((slot) => {
+            const { name, kind } = slot;
+            const cellKey = `${kind}:${name}`;
+            const glyph = glyphs.find((g) => g.kind === kind && g.name === name);
             const glyphStrokes = glyph
               ? glyph.strokeIds
                   .map((id) => completedRef.current.find((s) => s.id === id))
@@ -2230,31 +2416,31 @@ export default function Home() {
             // value here made a freshly-drawn stroke's anchor not quite
             // match what fromAnchorSpace later rescales against, so it
             // visibly jumped a few pixels the instant the stroke committed.
-            const liveWidth = cellDims[letter]?.width ?? cellWidth;
-            const liveHeight = cellDims[letter]?.height ?? cellHeightPx;
+            const liveWidth = cellDims[cellKey]?.width ?? cellWidth;
+            const liveHeight = cellDims[cellKey]?.height ?? cellHeightPx;
             const fittedPoints = needsFit
-              ? fitStrokesToCell(glyphStrokes, letter, liveWidth, liveHeight, metrics)
+              ? fitStrokesToCell(glyphStrokes, name, liveWidth, liveHeight, metrics)
               : glyphStrokes.map((s) =>
                   fromAnchorSpace(s.points, glyph?.cellWidth, glyph?.cellHeight, liveWidth, liveHeight, keepProportions)
                 );
             const cellStrokes = glyphStrokes.map((s, i) => ({ id: s.id, points: fittedPoints[i], widthScale: s.widthScale }));
             return (
               <GridCell
-                key={letter}
-                label={letter}
+                key={cellKey}
+                label={name}
                 strokes={cellStrokes}
                 tool={(FREE_ONLY_TOOLS.has(drawTool) ? "pen" : drawTool) as CellTool}
                 onErase={(ids) => deleteStrokes(ids)}
-                onStrokesChange={(updates) => handleGridStrokesChange(letter, updates, liveWidth, liveHeight)}
+                onStrokesChange={(updates) => handleGridStrokesChange(slot, updates, liveWidth, liveHeight)}
                 strokeOptions={optionsFor(settings)}
                 onStrokeComplete={(stroke, reportedWidth, reportedHeight) =>
-                  handleGridStroke(letter, stroke, reportedWidth, reportedHeight)
+                  handleGridStroke(slot, stroke, reportedWidth, reportedHeight)
                 }
                 metrics={metrics}
                 leftBearing={glyph?.leftBearing}
                 rightBearing={glyph?.rightBearing}
-                onBearingsChange={(left, right) => handleBearingsChange(letter, left, right)}
-                onResize={(width, height) => handleCellResize(letter, width, height)}
+                onBearingsChange={(left, right) => handleBearingsChange(slot, left, right)}
+                onResize={(width, height) => handleCellResize(cellKey, width, height)}
               />
             );
           })}
