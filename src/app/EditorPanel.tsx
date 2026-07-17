@@ -128,6 +128,12 @@ export default function EditorPanel({
   fontSize,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  // The scroll viewport around the canvas — its own box size only ever
+  // changes from window/layout resizing (overflow-y:auto means the canvas
+  // growing taller never inflates it), so it's what the ResizeObserver
+  // watches and what supplies the "at least this tall" floor for a short
+  // composition.
+  const scrollRef = useRef<HTMLDivElement | null>(null);
   // Real text input — invisible, absolutely stacked over the canvas (see
   // .editorHiddenInput) — so typing/caret/selection/IME/copy-paste all stay
   // native instead of reimplemented. Only its position (caretIndex) is read
@@ -158,34 +164,46 @@ export default function EditorPanel({
 
   useEffect(() => {
     const canvas = canvasRef.current;
+    const scrollEl = scrollRef.current;
     const ctx = canvas?.getContext("2d");
-    if (!canvas || !ctx) return;
+    if (!canvas || !scrollEl || !ctx) return;
 
     function draw() {
       const dpr = window.devicePixelRatio || 1;
-      const rect = canvas!.getBoundingClientRect();
-      canvas!.width = rect.width * dpr;
-      canvas!.height = rect.height * dpr;
-      ctx!.setTransform(dpr, 0, 0, dpr, 0, 0);
-      ctx!.clearRect(0, 0, rect.width, rect.height);
-
-      const paragraphs = text.split("\n");
-      // Fit within the actual box, in layoutText's own (pre-sizeFactor) unit
-      // space — a small right margin so glyphs never touch the very edge.
+      // Width only — the canvas's own height is what we're about to compute
+      // from content, so read it from the scroll viewport (fixed by layout)
+      // rather than the canvas's current (stale) bounding rect.
+      const cssWidth = scrollEl!.clientWidth;
       const RIGHT_MARGIN = 16;
-      const maxLineWidth = Math.max(rect.width / sizeFactor - RIGHT_MARGIN / sizeFactor, 50);
+      const maxLineWidth = Math.max(cssWidth / sizeFactor - RIGHT_MARGIN / sizeFactor, 50);
+      const LEFT_MARGIN = 8; // same pre-sizeFactor unit space as TOP_PADDING
+      const BOTTOM_MARGIN = 24;
 
-      // Chars left to walk through before hitting the caret's global text
-      // offset — decremented per visual line (wrapped sub-lines consume no
-      // extra character, only the paragraph's own trailing "\n" does) until
-      // it lands within the current visual line's own entries.
+      // ---- Pass 1: lay out every line's geometry, but don't draw yet ----
+      // A glyph's own left bearing/overshoot can put its leftmost point
+      // below this line's x=0 origin (layoutText.ts's offsetX is computed
+      // against the whole paragraph's cursor, not clamped to stay
+      // non-negative) — draw it as-is and it's simply off the left edge of
+      // the canvas, permanently, with nothing to scroll to reveal it. So
+      // each line's points are collected first, its own minX measured, and
+      // only then drawn with just enough rightward shift to clear that
+      // line's own worst offender — never a flat guessed margin, since the
+      // overshoot varies per glyph and per font size.
+      type LineGeometry = {
+        y: number;
+        height: number;
+        minX: number;
+        glyphSets: StrokePoint[][];
+      };
+      const lines: LineGeometry[] = [];
+
       let remainingToCaret = caretIndex;
       let caretDrawn = false;
-      let caretX = 0;
-      let caretTop = 0;
-      let caretBottom = 0;
+      let caretLineIndex = -1;
+      let caretCharX = 0;
 
       let lineY = TOP_PADDING;
+      const paragraphs = text.split("\n");
       for (const paragraph of paragraphs) {
         const layout = layoutText(paragraph, glyphs, strokes, metrics);
         const wrappedLines = wrapEntries(layout.entries, maxLineWidth);
@@ -202,44 +220,67 @@ export default function EditorPanel({
 
         for (const { entries: lineEntries, startIndex } of wrappedLines) {
           const lineStartX = cumulativeXAtStart[startIndex] ?? 0;
+          let minX = 0;
+          const glyphSets: StrokePoint[][] = [];
 
           for (const entry of lineEntries) {
             if (entry.kind !== "glyph") continue;
             for (const strokePoints of entry.strokePointSets) {
-              // Each glyph's raw pen points, transformed by layoutText's own
-              // per-glyph offset/scale (the same Grid-bearing-aware or
-              // bbox-fallback calibration Animate mode already uses),
-              // re-based to this wrapped line's own x=0 origin (subtracting
-              // where this line started in the unwrapped paragraph) plus
-              // this line's running Y offset, then uniformly rescaled by
-              // the user's chosen point size — applied last so it grows/
-              // shrinks glyph size AND inter-glyph/inter-line spacing
-              // together, not just the letterforms in place. Pressure
-              // carried straight through untouched, so the composed text
-              // still renders with real perfect-freehand thickness
-              // variation, not a flattened skeleton.
-              const transformed: StrokePoint[] = strokePoints.map((p) => [
-                (p[0] * entry.scale + entry.offsetX - lineStartX) * sizeFactor,
-                (p[1] * entry.scale + entry.offsetY + lineY) * sizeFactor,
-                p[2],
-              ]);
-              fillOutline(ctx!, outlineFor(transformed, effectiveSettingsFor(settings, sizeFactor)));
+              const rebased: StrokePoint[] = strokePoints.map((p) => {
+                const x = p[0] * entry.scale + entry.offsetX - lineStartX;
+                if (x < minX) minX = x;
+                return [x, p[1] * entry.scale + entry.offsetY, p[2]];
+              });
+              glyphSets.push(rebased);
             }
           }
 
           if (!caretDrawn && remainingToCaret <= lineEntries.length) {
             let x = 0;
             for (let i = 0; i < remainingToCaret && i < lineEntries.length; i++) x += lineEntries[i].advanceWidth;
-            caretX = x * sizeFactor;
-            caretTop = lineY * sizeFactor;
-            caretBottom = (lineY + layout.height) * sizeFactor;
+            caretCharX = x;
+            caretLineIndex = lines.length;
             caretDrawn = true;
           }
           remainingToCaret -= lineEntries.length;
+
+          lines.push({ y: lineY, height: layout.height, minX, glyphSets });
           lineY += layout.height + LINE_GAP;
         }
 
         remainingToCaret -= 1; // the paragraph's own trailing "\n"
+      }
+
+      // ---- Size the canvas to fit every line, never less than the visible box ----
+      const contentHeight = Math.max(lineY - LINE_GAP + BOTTOM_MARGIN, TOP_PADDING) * sizeFactor;
+      const cssHeight = Math.max(contentHeight, scrollEl!.clientHeight);
+
+      canvas!.style.height = `${cssHeight}px`;
+      canvas!.width = cssWidth * dpr;
+      canvas!.height = cssHeight * dpr;
+      ctx!.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx!.clearRect(0, 0, cssWidth, cssHeight);
+
+      // ---- Pass 2: draw, shifting each line right just enough to clear its own leftmost extent ----
+      let caretX = 0;
+      let caretTop = 0;
+      let caretBottom = 0;
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const shiftX = LEFT_MARGIN - Math.min(0, line.minX);
+        for (const strokePoints of line.glyphSets) {
+          const transformed: StrokePoint[] = strokePoints.map((p) => [
+            (p[0] + shiftX) * sizeFactor,
+            (p[1] + line.y) * sizeFactor,
+            p[2],
+          ]);
+          fillOutline(ctx!, outlineFor(transformed, effectiveSettingsFor(settings, sizeFactor)));
+        }
+        if (i === caretLineIndex) {
+          caretX = (caretCharX + shiftX) * sizeFactor;
+          caretTop = line.y * sizeFactor;
+          caretBottom = (line.y + line.height) * sizeFactor;
+        }
       }
 
       if (caretDrawn && caretVisible) {
@@ -260,21 +301,23 @@ export default function EditorPanel({
         ctx!.save();
         ctx!.font = "14px \"Public Sans\", system-ui, sans-serif";
         ctx!.fillStyle = PLACEHOLDER_COLOR;
-        ctx!.fillText("Type using your tagged glyphs…", 0, TOP_PADDING - 8);
+        ctx!.fillText("Type using your tagged glyphs…", LEFT_MARGIN, TOP_PADDING - 8);
         ctx!.restore();
       }
     }
 
     draw();
     const resizeObserver = new ResizeObserver(draw);
-    resizeObserver.observe(canvas);
+    resizeObserver.observe(scrollEl);
     return () => resizeObserver.disconnect();
   }, [text, glyphs, strokes, metrics, settings, sizeFactor, caretIndex, caretVisible]);
 
   return (
     <div className={styles.editorPanel}>
       <div className={styles.editorCanvasWrap} onClick={() => textareaRef.current?.focus()}>
-        <canvas ref={canvasRef} className={styles.editorCanvas} />
+        <div className={styles.editorCanvasScroll} ref={scrollRef}>
+          <canvas ref={canvasRef} className={styles.editorCanvas} />
+        </div>
         <textarea
           ref={textareaRef}
           className={styles.editorHiddenInput}

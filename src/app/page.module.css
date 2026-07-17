@@ -601,9 +601,20 @@
   cursor: text;
 }
 
+/* The canvas can grow taller than the visible box (composed text isn't
+   height-limited) — this is what actually scrolls. It's a plain in-flow
+   sibling of the hidden textarea below, not an ancestor of it: if the
+   textarea lived inside this scrolling box, it would scroll away with the
+   canvas and stop covering the visible viewport once the user scrolled
+   down. Kept separate so the input always covers exactly what's on screen. */
+.editorCanvasScroll {
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
+}
+
 .editorCanvas {
   width: 100%;
-  height: 100%;
   display: block;
   background: var(--color-vanilla);
 }
