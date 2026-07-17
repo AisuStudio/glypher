@@ -39,6 +39,7 @@ import { CHARACTER_SETS, DEFAULT_CHARACTER_SET_IDS } from "@/lib/charsets";
 import AnimatePanel from "./AnimatePanel";
 import EditorPanel, { DEFAULT_EDITOR_FONT_SIZE_PT } from "./EditorPanel";
 import { DEFAULT_PRESET_ID, type AnimationPresetId } from "@/lib/animationPresets";
+import { trackPageview, trackDuration, trackExport } from "@/lib/analytics";
 
 // Draw has three styles: Free (the old "Write" freeform canvas), Grid (one
 // glyph per cell), and Editor (compose/preview text using already-tagged
@@ -1103,6 +1104,24 @@ export default function Home() {
     redrawRef.current();
   }, [selectedIds]);
 
+  // Mini analytics (see /anneliese): one pageview beacon per mount, plus a
+  // session-duration beacon on the way out. pagehide (not just
+  // visibilitychange/beforeunload) also covers mobile Safari's app-switch
+  // behavior, which never fires a reliable unload event otherwise.
+  useEffect(() => {
+    trackPageview();
+    const start = performance.now();
+    function sendDuration() {
+      trackDuration((performance.now() - start) / 1000);
+    }
+    window.addEventListener("pagehide", sendDuration);
+    return () => {
+      window.removeEventListener("pagehide", sendDuration);
+      sendDuration();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     taggedIdsRef.current = new Set(glyphs.flatMap((g) => g.strokeIds));
     gridNativeStrokeIdsRef.current = new Set(
@@ -1803,6 +1822,7 @@ export default function Home() {
   }
 
   function handleDownloadJson() {
+    trackExport("json");
     const blob = new Blob([exportJson], { type: "application/json" });
     saveFile(blob, {
       suggestedName: "fontane-document.json",
@@ -1814,14 +1834,17 @@ export default function Home() {
 
   function handleExportOtf() {
     if (!exportDoc) return;
+    trackExport("otf");
     downloadFont(exportDoc, "fontane.otf");
   }
 
   function handleExportSkeleton() {
+    trackExport("skeleton-svg");
     downloadSkeletonSvg(glyphs, completedRef.current);
   }
 
   function handleDownloadFff() {
+    trackExport("fff");
     downloadProjectFile(glyphs, completedRef.current, metrics, settings, "untitled.fff");
   }
 

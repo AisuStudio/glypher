@@ -5,6 +5,7 @@ import styles from "./page.module.css";
 import { layoutText } from "@/lib/layoutText";
 import { buildAnimationSvg, buildAnimationEmbed, downloadAnimationHtml } from "@/lib/exportAnimation";
 import { ANIMATION_PRESETS, type AnimationPresetId } from "@/lib/animationPresets";
+import { trackExport } from "@/lib/analytics";
 import type { Glyph } from "@/lib/glyphs";
 import type { Stroke } from "@/lib/strokes";
 import type { Metrics } from "@/lib/metrics";
@@ -82,7 +83,10 @@ export default function AnimatePanel({
         <button
           type="button"
           className={styles.clearBtn}
-          onClick={() => downloadAnimationHtml(text, glyphs, strokes, metrics, presetId)}
+          onClick={() => {
+            trackExport("animation-html");
+            downloadAnimationHtml(text, glyphs, strokes, metrics, presetId);
+          }}
           disabled={!hasGlyphs}
         >
           Download HTML
