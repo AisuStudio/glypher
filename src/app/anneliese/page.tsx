@@ -16,7 +16,7 @@ async function getStats() {
 
   try {
     const [{ data: pageviews }, { data: durations }, { data: exports }] = await Promise.all([
-      supabase.from("fontane_events").select("visitor_id").eq("type", "pageview"),
+      supabase.from("fontane_events").select("visitor_id, referrer").eq("type", "pageview"),
       supabase.from("fontane_events").select("seconds").eq("type", "duration"),
       supabase.from("fontane_events").select("format").eq("type", "export"),
     ]);
@@ -29,10 +29,21 @@ async function getStats() {
       if (!row.format) continue;
       exportsByFormat[row.format] = (exportsByFormat[row.format] ?? 0) + 1;
     }
+    // Per-pageview, not per-visitor — the same visitor can arrive direct one
+    // time and via a link the next.
+    const directCount = (pageviews ?? []).filter((r) => !r.referrer).length;
+    const referredCount = (pageviews ?? []).length - directCount;
 
-    return { visitorCount, avgSeconds, exportsByFormat, ok: true as const };
+    return { visitorCount, avgSeconds, exportsByFormat, directCount, referredCount, ok: true as const };
   } catch {
-    return { visitorCount: 0, avgSeconds: 0, exportsByFormat: {} as Record<string, number>, ok: false as const };
+    return {
+      visitorCount: 0,
+      avgSeconds: 0,
+      exportsByFormat: {} as Record<string, number>,
+      directCount: 0,
+      referredCount: 0,
+      ok: false as const,
+    };
   }
 }
 
@@ -79,6 +90,11 @@ export default async function AnnelieseePage() {
             <div style={{ opacity: 0.6, fontSize: 14 }}>avg. time on site</div>
           </div>
         </div>
+
+        <h2 style={{ fontSize: 16, marginBottom: 12, opacity: 0.6 }}>traffic</h2>
+        <p style={{ marginBottom: 40 }}>
+          {stats.directCount} direct / {stats.referredCount} referred
+        </p>
 
         <h2 style={{ fontSize: 16, marginBottom: 12, opacity: 0.6 }}>exports by format</h2>
         {exportEntries.length === 0 ? (

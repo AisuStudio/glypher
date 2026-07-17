@@ -3,7 +3,7 @@ import { getSupabase } from "@/lib/supabase";
 export const dynamic = "force-dynamic";
 
 type TrackBody =
-  | { type: "pageview"; visitorId: string }
+  | { type: "pageview"; visitorId: string; referrer?: string | null }
   | { type: "duration"; seconds: number }
   | { type: "export"; format: string };
 
@@ -23,7 +23,9 @@ export async function POST(request: Request) {
   if (supabase) {
     try {
       if (body.type === "pageview" && body.visitorId) {
-        await supabase.from("fontane_events").insert({ type: "pageview", visitor_id: body.visitorId });
+        await supabase
+          .from("fontane_events")
+          .insert({ type: "pageview", visitor_id: body.visitorId, referrer: body.referrer ?? null });
       } else if (body.type === "duration" && Number.isFinite(body.seconds)) {
         await supabase.from("fontane_events").insert({ type: "duration", seconds: Math.round(body.seconds) });
       } else if (body.type === "export" && body.format) {

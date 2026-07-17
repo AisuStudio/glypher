@@ -9,8 +9,13 @@ create table if not exists fontane_events (
   visitor_id text,
   seconds integer,
   format text,
+  -- Referring hostname only (e.g. "google.com"), not the full referrer URL —
+  -- null means direct traffic (typed URL, bookmark, or same-origin nav).
+  referrer text,
   created_at timestamptz not null default now()
 );
+
+alter table fontane_events add column if not exists referrer text;
 
 -- RLS enabled with NO policies = deny-all for the anon/authenticated roles.
 -- The app only ever reads/writes via the service_role key (server-side

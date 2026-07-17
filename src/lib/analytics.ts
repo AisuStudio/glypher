@@ -37,8 +37,22 @@ function send(payload: Record<string, unknown>) {
   }
 }
 
+// Just the referring hostname (e.g. "google.com"), not the full referrer URL
+// — enough to tell direct traffic (empty) from everything else, or later
+// break down by source, without carrying over query strings/search terms
+// that can leak into document.referrer.
+function getReferrerHost(): string | null {
+  if (!document.referrer) return null;
+  try {
+    const host = new URL(document.referrer).hostname;
+    return host === window.location.hostname ? null : host;
+  } catch {
+    return null;
+  }
+}
+
 export function trackPageview() {
-  send({ type: "pageview", visitorId: getVisitorId() });
+  send({ type: "pageview", visitorId: getVisitorId(), referrer: getReferrerHost() });
 }
 
 export function trackDuration(seconds: number) {
