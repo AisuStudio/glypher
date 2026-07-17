@@ -1,11 +1,29 @@
+import { createHash } from "crypto";
+import { ipAddress } from "@vercel/functions";
 import { getSupabase } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
 
 type TrackBody =
-  | { type: "pageview"; visitorId: string; referrer?: string | null }
+  | { type: "pageview"; referrer?: string | null }
   | { type: "duration"; seconds: number }
   | { type: "export"; format: string };
+
+// A same-day, non-reversible fingerprint from IP+User-Agent — used only to
+// approximate "unique visitors" (SELECT DISTINCT over this value), never
+// stored as, or convertible back to, the raw IP. Rotates at midnight UTC (the
+// date is baked into the hash input), so the same person on two different
+// days is deliberately uncounted as the same visitor — the tradeoff GDPR/
+// ePrivacy compliance needs here, since nothing is ever stored on the
+// visitor's own device (see src/lib/analytics.ts) and nothing server-side
+// lets you go from this value back to who it was.
+function dailyVisitorFingerprint(request: Request): string {
+  const ip = ipAddress(request) ?? "unknown";
+  const userAgent = request.headers.get("user-agent") ?? "unknown";
+  const today = new Date().toISOString().slice(0, 10);
+  const salt = process.env.ANALYTICS_SALT ?? "fontane-analytics";
+  return createHash("sha256").update(`${salt}:${today}:${ip}:${userAgent}`).digest("hex");
+}
 
 // Fire-and-forget event intake for the /anneliese mini-analytics page. A
 // missing Supabase config (env vars not set yet) just no-ops instead of
@@ -22,10 +40,10 @@ export async function POST(request: Request) {
   const supabase = getSupabase();
   if (supabase) {
     try {
-      if (body.type === "pageview" && body.visitorId) {
+      if (body.type === "pageview") {
         await supabase
           .from("fontane_events")
-          .insert({ type: "pageview", visitor_id: body.visitorId, referrer: body.referrer ?? null });
+          .insert({ type: "pageview", visitor_id: dailyVisitorFingerprint(request), referrer: body.referrer ?? null });
       } else if (body.type === "duration" && Number.isFinite(body.seconds)) {
         await supabase.from("fontane_events").insert({ type: "duration", seconds: Math.round(body.seconds) });
       } else if (body.type === "export" && body.format) {

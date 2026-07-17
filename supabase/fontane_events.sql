@@ -6,6 +6,11 @@
 create table if not exists fontane_events (
   id bigint generated always as identity primary key,
   type text not null check (type in ('pageview', 'duration', 'export')),
+  -- A same-day, non-reversible sha256 fingerprint of IP+User-Agent (see
+  -- api/track/route.ts's dailyVisitorFingerprint), NOT a persistent id — the
+  -- app never stores or reads anything on the visitor's own device, so this
+  -- table is the only place "uniqueness" is approximated, and only within a
+  -- single day.
   visitor_id text,
   seconds integer,
   format text,

@@ -1,27 +1,15 @@
-// Minimal client-side analytics: an anonymous per-browser visitor id (not a
-// real identity — clearing localStorage or switching devices/browsers just
-// starts a new one, which is an accepted tradeoff for a "mini" hobby-tool
-// counter, not a privacy-invasive tracking system), a session-duration
-// beacon, and export-format events. Every send is fire-and-forget via
+// Minimal analytics: no client-side storage at all (no cookie, no
+// localStorage) — nothing is written to the visitor's device, so this never
+// triggers ePrivacy/GDPR's consent requirement for storing/reading
+// information on a user's terminal equipment. "Unique visitors" is instead
+// approximated server-side (see api/track/route.ts) from a daily-rotating
+// hash of IP+User-Agent that's never itself stored — an accepted
+// less-than-perfect count (the same person across two days counts twice) in
+// exchange for not tracking anyone. Session-duration and export-format
+// events carry no identifier at all. Every send is fire-and-forget via
 // sendBeacon (falls back to fetch with keepalive where unavailable) so it
 // never blocks or breaks the drawing UI, and every failure is swallowed —
 // analytics must never be able to throw into the caller.
-
-const VISITOR_ID_KEY = "fontane.visitorId.v1";
-
-function getVisitorId(): string {
-  if (typeof window === "undefined") return "";
-  try {
-    let id = window.localStorage.getItem(VISITOR_ID_KEY);
-    if (!id) {
-      id = crypto.randomUUID();
-      window.localStorage.setItem(VISITOR_ID_KEY, id);
-    }
-    return id;
-  } catch {
-    return "";
-  }
-}
 
 function send(payload: Record<string, unknown>) {
   if (typeof window === "undefined") return;
@@ -52,7 +40,7 @@ function getReferrerHost(): string | null {
 }
 
 export function trackPageview() {
-  send({ type: "pageview", visitorId: getVisitorId(), referrer: getReferrerHost() });
+  send({ type: "pageview", referrer: getReferrerHost() });
 }
 
 export function trackDuration(seconds: number) {

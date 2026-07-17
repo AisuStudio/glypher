@@ -83,7 +83,7 @@ export default async function AnnelieseePage() {
         <div style={{ display: "grid", gap: 24, gridTemplateColumns: "repeat(2, 1fr)", marginBottom: 40 }}>
           <div>
             <div style={{ fontSize: 40 }}>{stats.visitorCount}</div>
-            <div style={{ opacity: 0.6, fontSize: 14 }}>unique visitors</div>
+            <div style={{ opacity: 0.6, fontSize: 14 }}>unique visitors (approx., per day)</div>
           </div>
           <div>
             <div style={{ fontSize: 40 }}>{formatDuration(stats.avgSeconds)}</div>
