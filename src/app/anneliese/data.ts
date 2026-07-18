@@ -49,7 +49,7 @@ function daysBetween(from: string, to: string): number {
 // below them" rule.
 export async function getAnnelieseData(range: DateRange) {
   const empty = {
-    visitorCount: 0,
+    totalVisits: 0,
     avgSeconds: 0,
     exportsByFormat: {} as Record<string, number>,
     directCount: 0,
@@ -66,7 +66,7 @@ export async function getAnnelieseData(range: DateRange) {
   const toTs = `${range.to}T23:59:59.999Z`;
 
   try {
-    const [{ data: pageviews }, { data: durations }, { data: exports }] = await Promise.all([
+    const [{ data: pageviews }, { data: durations }, { data: exports }, { count: totalVisits }] = await Promise.all([
       supabase
         .from("fontane_events")
         .select("visitor_id, referrer, created_at")
@@ -75,10 +75,15 @@ export async function getAnnelieseData(range: DateRange) {
         .lte("created_at", toTs),
       supabase.from("fontane_events").select("seconds").eq("type", "duration").gte("created_at", fromTs).lte("created_at", toTs),
       supabase.from("fontane_events").select("format").eq("type", "export").gte("created_at", fromTs).lte("created_at", toTs),
+      // All-time, deliberately NOT scoped to `range` — the one number on the
+      // page that's meant to just keep growing, rather than reset every time
+      // the date filter changes (the bar chart below is already the
+      // range-scoped, per-day breakdown; this headline number complements it
+      // instead of duplicating it).
+      supabase.from("fontane_events").select("*", { count: "exact", head: true }).eq("type", "pageview"),
     ]);
 
     const rows = pageviews ?? [];
-    const visitorCount = new Set(rows.map((r) => r.visitor_id)).size;
     const seconds = (durations ?? []).map((r) => r.seconds).filter((s): s is number => s != null);
     const avgSeconds = seconds.length ? Math.round(seconds.reduce((a, b) => a + b, 0) / seconds.length) : 0;
     const exportsByFormat: Record<string, number> = {};
@@ -153,7 +158,7 @@ export async function getAnnelieseData(range: DateRange) {
       .filter((label) => buckets.some((b) => b.sources.some((s) => s.label === label)))
       .map((label) => ({ label, color: colorFor(label) }));
 
-    return { visitorCount, avgSeconds, exportsByFormat, directCount, referredCount, buckets, legend, ok: true as const };
+    return { totalVisits: totalVisits ?? 0, avgSeconds, exportsByFormat, directCount, referredCount, buckets, legend, ok: true as const };
   } catch {
     return empty;
   }
