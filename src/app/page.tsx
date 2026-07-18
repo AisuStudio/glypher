@@ -2136,6 +2136,16 @@ export default function Home() {
               >
                 How to
               </button>
+              <a
+                href="https://cnsl.aisu.studio/submit/fontane-cb43f90b"
+                target="_blank"
+                rel="noopener noreferrer"
+                role="menuitem"
+                className={styles.dropdownItem}
+                onClick={() => setOpenMenu(null)}
+              >
+                See &amp; Suggest Features
+              </a>
             </div>
           )}
         </div>
