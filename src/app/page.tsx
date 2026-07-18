@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { getStroke } from "perfect-freehand";
 import styles from "./page.module.css";
 import { clearStrokes, loadStrokes, saveStrokes, type Stroke, type StrokePoint } from "@/lib/strokes";
@@ -21,12 +22,9 @@ import {
   Pencil,
   Brush,
   Eraser,
-  LineSquiggle,
-  Grid3x3,
   BookA,
   SplinePointer,
   MousePointer2,
-  NotebookPen,
   Lasso,
   Move,
   RotateCw,
@@ -119,7 +117,7 @@ const TOOL_DEFS: ToolDef[] = [
 // Same idea for the sidebar's VIEWS section and the menu bar's View dropdown
 // — a flat list synthesized across the two underlying state variables
 // (topMode/drawStyle) that "which view is active" actually spans.
-type ViewDef = { key: string; label: string; icon: typeof Brush; topMode: TopMode; drawStyle?: DrawStyle };
+type ViewDef = { key: string; label: string; topMode: TopMode; drawStyle?: DrawStyle };
 // Animate is deliberately left out of this list — not far enough along yet
 // to expose in the nav — but topMode==="animate" and AnimatePanel itself are
 // untouched, so re-adding a { key: "animate", ... } entry here is all it'll
@@ -128,9 +126,9 @@ type ViewDef = { key: string; label: string; icon: typeof Brush; topMode: TopMod
 // the whole surface already) — it used to be a JSON-preview panel, but that
 // duplicated what File already does and confused "view" with "action".
 const VIEW_DEFS: ViewDef[] = [
-  { key: "free", label: "Free Draw View", icon: LineSquiggle, topMode: "draw", drawStyle: "free" },
-  { key: "grid", label: "Grid View", icon: Grid3x3, topMode: "draw", drawStyle: "grid" },
-  { key: "editor", label: "Editor View", icon: NotebookPen, topMode: "draw", drawStyle: "editor" },
+  { key: "free", label: "Free Draw View", topMode: "draw", drawStyle: "free" },
+  { key: "grid", label: "Grid View", topMode: "draw", drawStyle: "grid" },
+  { key: "editor", label: "Editor View", topMode: "draw", drawStyle: "editor" },
 ];
 
 const COLOR_DEFAULT = "#1f1934"; // blueberry — untagged
@@ -481,6 +479,11 @@ export default function Home() {
     if (marketplaceModal !== "publish") return;
     const trimmed = publishName.trim();
     if (!trimmed) {
+      // Must clear a stale "available" result synchronously here (not just
+      // let the debounced fetch below overwrite it) — handlePublish() reads
+      // slugCheck?.available as its guard, so an empty name that still held
+      // a prior success would otherwise stay publishable.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSlugCheck(null);
       setSlugChecking(false);
       return;
@@ -501,6 +504,9 @@ export default function Home() {
     if (marketplaceModal !== "share") return;
     const trimmed = shareQuery.trim();
     if (!trimmed) {
+      // Clears stale results synchronously so a cleared search box can't
+      // still show the previous query's matches for a frame.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setShareResults([]);
       setShareSearching(false);
       return;
@@ -2398,9 +2404,9 @@ export default function Home() {
               >
                 Publish Font
               </button>
-              <a href="/marketplace" role="menuitem" className={styles.dropdownItem} onClick={() => setOpenMenu(null)}>
+              <Link href="/marketplace" role="menuitem" className={styles.dropdownItem} onClick={() => setOpenMenu(null)}>
                 Browse Fonts
-              </a>
+              </Link>
               <button
                 type="button"
                 role="menuitem"
