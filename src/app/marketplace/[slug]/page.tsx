@@ -34,8 +34,15 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   return { title: font ? `${font.display_name} — Fontane.Studio Marketplace` : "Font not found — Fontane.Studio" };
 }
 
-export default async function FontOverviewPage({ params }: { params: Promise<{ slug: string }> }) {
+export default async function FontOverviewPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ slug: string }>;
+  searchParams: Promise<{ notrack?: string }>;
+}) {
   const { slug } = await params;
+  const { notrack } = await searchParams;
   const font = await getFont(slug);
   if (!font) notFound();
 
@@ -87,7 +94,7 @@ export default async function FontOverviewPage({ params }: { params: Promise<{ s
         </p>
         <div style={{ display: "flex", gap: 12 }}>
           <a
-            href={`/api/fonts/${font.slug}/download`}
+            href={`/api/fonts/${font.slug}/download${notrack !== undefined ? "?notrack" : ""}`}
             style={{
               font: "inherit",
               padding: "10px 20px",
