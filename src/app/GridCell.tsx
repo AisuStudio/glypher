@@ -171,7 +171,13 @@ type Props = {
   onStrokeComplete: (
     stroke: { id: string; points: StrokePoint[]; createdAt: number; kind?: StrokeKind },
     cellWidth: number,
-    cellHeight: number
+    cellHeight: number,
+    // Wall-clock span of the pointerdown→pointerup gesture — only this
+    // component knows it, so it rides along on the existing callback
+    // instead of the parent needing its own per-cell timing. Consumed by
+    // the provenance event the parent enqueues (see page.tsx's
+    // handleGridStroke).
+    durationMs: number
   ) => void;
   metrics: Metrics;
   leftBearing?: number;
@@ -203,6 +209,7 @@ export default function GridCell({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const pointsRef = useRef<StrokePoint[]>([]);
   const drawingRef = useRef(false);
+  const strokeStartTimeRef = useRef(0);
   const strokesRef = useRef(strokes);
   const toolRef = useRef(tool);
   const onEraseRef = useRef(onErase);
@@ -546,6 +553,7 @@ export default function GridCell({
         return;
       }
       drawingRef.current = true;
+      strokeStartTimeRef.current = Date.now();
       if (LASSO_TOOLS.has(toolRef.current)) {
         lassoRef.current = [[x, y]];
       } else {
@@ -664,7 +672,8 @@ export default function GridCell({
               kind: toolRef.current === "brush" ? "brush" : "pen",
             },
             canvas!.clientWidth,
-            canvas!.clientHeight
+            canvas!.clientHeight,
+            Math.max(0, Date.now() - strokeStartTimeRef.current)
           );
         }
       }

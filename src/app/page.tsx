@@ -40,6 +40,15 @@ import AnimatePanel from "./AnimatePanel";
 import EditorPanel, { DEFAULT_EDITOR_FONT_SIZE_PT } from "./EditorPanel";
 import { DEFAULT_PRESET_ID, type AnimationPresetId } from "@/lib/animationPresets";
 import { trackPageview, trackDuration, trackExport } from "@/lib/analytics";
+import {
+  getAuthorId,
+  getDraftId,
+  rollDraftId,
+  summarizeStroke,
+  enqueueProvenanceEvent,
+  flushProvenanceQueue,
+  flushProvenanceQueueAndWait,
+} from "@/lib/provenance";
 
 // Draw has three styles: Free (the old "Write" freeform canvas), Grid (one
 // glyph per cell), and Editor (compose/preview text using already-tagged
@@ -389,6 +398,10 @@ export default function Home() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const fffInputRef = useRef<HTMLInputElement | null>(null);
   const drawingRef = useRef(false);
+  // Wall-clock start of the current drag gesture — the one piece of timing
+  // info a completed Stroke's points don't carry themselves, needed for the
+  // provenance event's durationMs (see src/lib/provenance.ts).
+  const strokeStartTimeRef = useRef(0);
 
   // Completed strokes + their cached outlines (recomputed only when a stroke is added
   // or settings change — not on every pointer move).
@@ -986,6 +999,7 @@ export default function Home() {
         return;
       }
       drawingRef.current = true;
+      strokeStartTimeRef.current = Date.now();
       if (LASSO_TOOLS.has(drawToolRef.current)) {
         lassoRef.current = [[p[0], p[1]]];
       } else {
@@ -1109,6 +1123,14 @@ export default function Home() {
           outlinesRef.current = [...outlinesRef.current, outlineFor(stroke.points, settingsRef.current)];
           saveStrokes(completedRef.current);
           setStrokeCount(completedRef.current.length);
+          enqueueProvenanceEvent({
+            draftId: getDraftId(),
+            authorId: getAuthorId(),
+            clientStrokeId: stroke.id,
+            context: "free",
+            tool: stroke.kind === "brush" ? "brush" : "pen",
+            ...summarizeStroke(stroke.points, strokeStartTimeRef.current),
+          });
         }
         currentPointsRef.current = [];
       }
@@ -1238,6 +1260,22 @@ export default function Home() {
       sendDuration();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Provenance queue: periodic flush so a long drawing session doesn't sit
+  // on an ever-growing localStorage-backed queue, plus a pagehide flush so
+  // closing the tab mid-session doesn't lose the tail of it (same pattern
+  // as the analytics beacon above). enqueueProvenanceEvent already flushes
+  // once the queue hits its own batch size — this just covers the "drew a
+  // few strokes, then went idle" gap.
+  useEffect(() => {
+    const interval = setInterval(flushProvenanceQueue, 15000);
+    window.addEventListener("pagehide", flushProvenanceQueue);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener("pagehide", flushProvenanceQueue);
+      flushProvenanceQueue();
+    };
   }, []);
 
   useEffect(() => {
@@ -1859,7 +1897,13 @@ export default function Home() {
     }
   }
 
-  function handleGridStroke(slot: GridSlot, stroke: Stroke, currentCellWidth: number, currentCellHeight: number) {
+  function handleGridStroke(
+    slot: GridSlot,
+    stroke: Stroke,
+    currentCellWidth: number,
+    currentCellHeight: number,
+    durationMs: number
+  ) {
     pushUndoSnapshot();
     // Convert to the glyph's existing anchor space (if it already has one)
     // before storing, so this stroke stays geometrically consistent with
@@ -1879,6 +1923,17 @@ export default function Home() {
     outlinesRef.current = [...outlinesRef.current, outlineFor(anchoredStroke.points, settingsRef.current)];
     saveStrokes(completedRef.current);
     setStrokeCount(completedRef.current.length);
+    enqueueProvenanceEvent({
+      draftId: getDraftId(),
+      authorId: getAuthorId(),
+      clientStrokeId: anchoredStroke.id,
+      context: "grid",
+      tool: anchoredStroke.kind === "brush" ? "brush" : "pen",
+      // durationMs was measured directly by GridCell (only it knows its own
+      // pointerdown time) — reproduced here via summarizeStroke's own
+      // Date.now()-startedAt math rather than adding a second code path.
+      ...summarizeStroke(anchoredStroke.points, Date.now() - durationMs),
+    });
 
     // Grid drawing fuses capture + tagging: the cell you draw into IS the
     // glyph, no separate lasso-select step. First stroke creates the glyph,
@@ -2026,6 +2081,10 @@ export default function Home() {
     saveMetrics(DEFAULT_METRICS);
     setSettings(DEFAULT_SETTINGS);
     setConfirmNewFile(false);
+    // A fresh project needs a fresh provenance trail — otherwise whatever
+    // accrued for the strokes just cleared could be reused to publish
+    // unrelated later work.
+    rollDraftId();
   }
 
   function closeMarketplaceModal() {
@@ -2052,6 +2111,12 @@ export default function Home() {
     setPublishing(true);
     setPublishError(null);
     try {
+      // Best-effort: make sure whatever's still queued lands before the
+      // server checks for it. If this fails (offline, flaky network), the
+      // publish attempt still proceeds — the server just sees a sparser
+      // trail and the gate is stricter accordingly, not a hard client-side
+      // block.
+      await flushProvenanceQueueAndWait();
       const font = buildFont(exportDoc, trimmed);
       const blob = new Blob([font.toArrayBuffer()], { type: "font/otf" });
       const form = new FormData();
@@ -2059,6 +2124,8 @@ export default function Home() {
       form.append("name", trimmed);
       form.append("glyphCount", String(glyphs.length));
       form.append("licenseAccepted", "true");
+      form.append("draftId", getDraftId());
+      form.append("authorId", getAuthorId());
       if (publishAuthorName.trim()) form.append("authorName", publishAuthorName.trim());
       if (publishAuthorUrl.trim()) form.append("authorUrl", publishAuthorUrl.trim());
       const res = await fetch("/api/fonts/publish", { method: "POST", body: form });
@@ -2634,8 +2701,8 @@ export default function Home() {
                 onErase={(ids) => deleteStrokes(ids)}
                 onStrokesChange={(updates) => handleGridStrokesChange(slot, updates, liveWidth, liveHeight)}
                 strokeOptions={optionsFor(settings)}
-                onStrokeComplete={(stroke, reportedWidth, reportedHeight) =>
-                  handleGridStroke(slot, stroke, reportedWidth, reportedHeight)
+                onStrokeComplete={(stroke, reportedWidth, reportedHeight, durationMs) =>
+                  handleGridStroke(slot, stroke, reportedWidth, reportedHeight, durationMs)
                 }
                 metrics={metrics}
                 leftBearing={glyph?.leftBearing}

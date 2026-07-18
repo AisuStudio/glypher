@@ -24,13 +24,20 @@ create table if not exists fontane_fonts (
   -- freeform text (light normalization, e.g. adding "https://", happens in
   -- api/fonts/publish, not enforced here).
   author_name text,
-  author_url text
+  author_url text,
+  -- Which draft/browser's recorded provenance justified this publish (see
+  -- fontane_provenance.sql) — null for fonts published before the
+  -- provenance gate existed (grandfathered, not retroactively checked).
+  draft_id text,
+  author_id text
 );
 
 -- Safe to re-run even if the table above already exists from an earlier
 -- version of this file (same pattern as fontane_events.sql's referrer column).
 alter table fontane_fonts add column if not exists author_name text;
 alter table fontane_fonts add column if not exists author_url text;
+alter table fontane_fonts add column if not exists draft_id text;
+alter table fontane_fonts add column if not exists author_id text;
 
 -- RLS enabled with NO policies = deny-all for anon/authenticated. The app
 -- has no anon key configured at all — every read/write goes through
