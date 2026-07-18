@@ -1,5 +1,8 @@
 import Link from "next/link";
 import { getSupabase } from "@/lib/supabase";
+import { publicFontUrl, SAMPLE_TEXT } from "@/lib/marketplace";
+import PageviewTracker from "./PageviewTracker";
+import MarketplaceNav from "./MarketplaceNav";
 
 export const dynamic = "force-dynamic";
 export const metadata = {
@@ -42,7 +45,9 @@ export default async function MarketplacePage() {
         justifyContent: "center",
       }}
     >
+      <PageviewTracker />
       <div style={{ maxWidth: 720, width: "100%" }}>
+        <MarketplaceNav />
         <h1 style={{ fontSize: 28, marginBottom: 4 }}>Marketplace</h1>
         <p style={{ opacity: 0.6, marginBottom: 32, fontSize: 14 }}>
           Fonts published with Fontane.Studio — free to download, unrestricted use.
@@ -55,6 +60,12 @@ export default async function MarketplacePage() {
         )}
 
         {ok && fonts.length === 0 && <p style={{ opacity: 0.6 }}>No fonts published yet.</p>}
+
+        {fonts.length > 0 && (
+          <style>{`${fonts
+            .map((font) => `@font-face { font-family: "mp-${font.slug}"; src: url("${publicFontUrl(font.slug)}") format("opentype"); font-display: swap; }`)
+            .join("\n")}`}</style>
+        )}
 
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           {fonts.map((font) => (
@@ -76,6 +87,16 @@ export default async function MarketplacePage() {
               </div>
               <div style={{ opacity: 0.6, fontSize: 13, marginTop: 4 }}>
                 {font.glyph_count} glyphs · {font.download_count} downloads · {new Date(font.created_at).toLocaleDateString()}
+              </div>
+              <div
+                style={{
+                  fontFamily: `"mp-${font.slug}", sans-serif`,
+                  fontSize: 22,
+                  marginTop: 8,
+                  wordBreak: "break-word",
+                }}
+              >
+                {SAMPLE_TEXT}
               </div>
             </Link>
           ))}

@@ -1,6 +1,9 @@
 import { notFound } from "next/navigation";
 import { getSupabase } from "@/lib/supabase";
+import { publicFontUrl, SAMPLE_TEXT } from "@/lib/marketplace";
 import ShareButton from "./ShareButton";
+import PageviewTracker from "../PageviewTracker";
+import MarketplaceNav from "../MarketplaceNav";
 
 export const dynamic = "force-dynamic";
 
@@ -48,10 +51,9 @@ export default async function FontOverviewPage({ params }: { params: Promise<{ s
         justifyContent: "center",
       }}
     >
+      <PageviewTracker />
       <div style={{ maxWidth: 720, width: "100%" }}>
-        <a href="/marketplace" style={{ color: "#1f1934", opacity: 0.6, fontSize: 13, textDecoration: "none" }}>
-          ← Marketplace
-        </a>
+        <MarketplaceNav />
         <h1 style={{ fontSize: 32, margin: "12px 0 4px" }}>{font.display_name}</h1>
         <p style={{ opacity: 0.6, marginBottom: font.author_name ? 4 : 32, fontSize: 14 }}>
           {font.glyph_count} glyphs · {font.download_count} downloads · published {new Date(font.created_at).toLocaleDateString()}
@@ -68,6 +70,18 @@ export default async function FontOverviewPage({ params }: { params: Promise<{ s
             )}
           </p>
         )}
+        <style>{`@font-face { font-family: "mp-${font.slug}"; src: url("${publicFontUrl(font.slug)}") format("opentype"); font-display: swap; }`}</style>
+        <p
+          style={{
+            fontFamily: `"mp-${font.slug}", sans-serif`,
+            fontSize: 32,
+            lineHeight: 1.3,
+            marginBottom: 32,
+            wordBreak: "break-word",
+          }}
+        >
+          {SAMPLE_TEXT}
+        </p>
         <p style={{ marginBottom: 32, fontSize: 14 }}>
           Published under an unrestricted license — free for personal and commercial use, no attribution required.
         </p>
