@@ -592,13 +592,18 @@
   overflow: hidden;
 }
 
+/* The "desk" — a visibly different, muted surface behind the paper so its
+   shadow actually reads instead of blending into the same vanilla the rest
+   of the app uses. padding here is intentionally NOT what insets the paper
+   (see editorCanvasScroll's comment below) — it only matters for non-
+   absolutely-positioned children, which this wrap no longer has. */
 .editorCanvasWrap {
   position: relative;
   flex: 1;
   min-height: 0;
-  padding: 20px;
   box-sizing: border-box;
   cursor: text;
+  background: rgba(31, 25, 52, 0.06);
 }
 
 /* The canvas can grow taller than the visible box (composed text isn't
@@ -606,17 +611,34 @@
    sibling of the hidden textarea below, not an ancestor of it: if the
    textarea lived inside this scrolling box, it would scroll away with the
    canvas and stop covering the visible viewport once the user scrolled
-   down. Kept separate so the input always covers exactly what's on screen. */
+   down. Kept separate so the input always covers exactly what's on screen.
+   inset (not the parent's padding) is what insets it from editorCanvasWrap's
+   edges — a position:absolute child with inset:0 sits at its containing
+   block's PADDING box, i.e. right past the border, completely ignoring any
+   padding declared on the parent itself; padding on editorCanvasWrap above
+   would silently do nothing here. This is the "paper": vanilla, lifted off
+   the desk with a shadow, so writing on it doesn't feel like the previous
+   flush-with-everything canvas. */
 .editorCanvasScroll {
   position: absolute;
-  inset: 0;
+  inset: 24px;
   overflow-y: auto;
+  background: var(--color-vanilla);
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(31, 25, 52, 0.18), 0 1px 4px rgba(31, 25, 52, 0.12);
 }
 
+/* Padding on the canvas element itself (not a wrapper) so the drawn content
+   is guaranteed to sit inset from every edge regardless of the JS layout
+   math's own TOP_PADDING/margins — a plain CSS box-model guarantee that the
+   first line's ascenders can never render flush against (or clipped by) the
+   paper's edge. */
 .editorCanvas {
   width: 100%;
   display: block;
-  background: var(--color-vanilla);
+  padding: 28px 32px;
+  box-sizing: border-box;
+  background: transparent;
 }
 
 /* Real <textarea> stacked over the canvas, fully invisible — it's what
