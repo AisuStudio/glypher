@@ -128,9 +128,9 @@ type ViewDef = { key: string; label: string; icon: typeof Brush; topMode: TopMod
 // the whole surface already) — it used to be a JSON-preview panel, but that
 // duplicated what File already does and confused "view" with "action".
 const VIEW_DEFS: ViewDef[] = [
-  { key: "free", label: "Free", icon: LineSquiggle, topMode: "draw", drawStyle: "free" },
-  { key: "grid", label: "Grid", icon: Grid3x3, topMode: "draw", drawStyle: "grid" },
-  { key: "editor", label: "Editor", icon: NotebookPen, topMode: "draw", drawStyle: "editor" },
+  { key: "free", label: "Free Draw View", icon: LineSquiggle, topMode: "draw", drawStyle: "free" },
+  { key: "grid", label: "Grid View", icon: Grid3x3, topMode: "draw", drawStyle: "grid" },
+  { key: "editor", label: "Editor View", icon: NotebookPen, topMode: "draw", drawStyle: "editor" },
 ];
 
 const COLOR_DEFAULT = "#1f1934"; // blueberry — untagged
@@ -2575,26 +2575,6 @@ export default function Home() {
             <Redo2 size={16} strokeWidth={2} />
             <span>Redo</span>
           </button>
-        </div>
-
-        <div className={styles.hBarGroup}>
-          <span className={styles.hBarLabel}>Views</span>
-          {VIEW_DEFS.map((v) => {
-            const active = topMode === v.topMode && (!v.drawStyle || drawStyle === v.drawStyle);
-            return (
-              <button
-                key={v.key}
-                type="button"
-                className={`${styles.hBarItem} ${active ? styles.hBarItemActive : ""}`}
-                onClick={() => selectView(v)}
-                aria-label={v.label}
-                title={v.label}
-              >
-                <v.icon size={16} strokeWidth={2} />
-                <span>{v.label}</span>
-              </button>
-            );
-          })}
         </div>
 
         {topMode === "draw" && drawStyle !== "editor" && (
