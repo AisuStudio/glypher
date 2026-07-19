@@ -126,8 +126,8 @@ type ViewDef = { key: string; label: string; topMode: TopMode; drawStyle?: DrawS
 // the whole surface already) — it used to be a JSON-preview panel, but that
 // duplicated what File already does and confused "view" with "action".
 const VIEW_DEFS: ViewDef[] = [
-  { key: "free", label: "Free Draw View", topMode: "draw", drawStyle: "free" },
   { key: "grid", label: "Grid View", topMode: "draw", drawStyle: "grid" },
+  { key: "free", label: "Free Draw View", topMode: "draw", drawStyle: "free" },
   { key: "editor", label: "Editor View", topMode: "draw", drawStyle: "editor" },
 ];
 
@@ -452,7 +452,7 @@ export default function Home() {
   const redoRef = useRef<() => void>(() => {});
 
   const [topMode, setTopMode] = useState<TopMode>("draw");
-  const [drawStyle, setDrawStyle] = useState<DrawStyle>("free");
+  const [drawStyle, setDrawStyle] = useState<DrawStyle>("grid");
 
   // Menu bar dropdown (Fontane/File/Edit/View/Tools) — dismissed by the
   // outside-click listener below.
@@ -839,6 +839,20 @@ export default function Home() {
   // canvas most of the way off-screen. Not persisted: a fresh page load
   // always starts collapsed, same as any other "peek, then expand" panel.
   const [glyphListExpanded, setGlyphListExpanded] = useState(false);
+
+  // Shown once, the first time Free Draw is ever opened — dismissed
+  // permanently via localStorage, same pattern as every other one-time flag
+  // in this file (not a real "first session" check, just "has Start ever
+  // been clicked").
+  const [freeDrawIntroDismissed, setFreeDrawIntroDismissed] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.localStorage.getItem("fontane.seenFreeDrawIntro.v1") === "true";
+  });
+
+  function dismissFreeDrawIntro() {
+    setFreeDrawIntroDismissed(true);
+    window.localStorage.setItem("fontane.seenFreeDrawIntro.v1", "true");
+  }
 
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const selectedIdsRef = useRef<Set<string>>(new Set());
@@ -2712,6 +2726,49 @@ export default function Home() {
         style={!(topMode === "draw" && drawStyle === "free") ? { display: "none" } : undefined}
       >
         <canvas ref={canvasRef} className={styles.canvas} />
+        {topMode === "draw" && drawStyle === "free" && !freeDrawIntroDismissed && (
+          <div className={styles.introOverlay}>
+            <div className={styles.introCard}>
+              <h2 className={styles.introTitle}>The Free Draw Editor</h2>
+              <p className={styles.introText}>
+                Here you can write freely, select and assign singly letters, numbers or other glyphs. You can also
+                assign ligatures and alternate letters.
+              </p>
+              <h3 className={styles.introSubtitle}>How it works</h3>
+              <div className={styles.introSteps}>
+                <div className={styles.introStep}>
+                  <span className={styles.introStepBadge}>
+                    <Pencil size={16} strokeWidth={2} />
+                    Draw
+                  </span>
+                  <p className={styles.introStepText}>Create your letter shapes</p>
+                </div>
+                <div className={styles.introStep}>
+                  <span className={styles.introStepBadge}>
+                    <Lasso size={16} strokeWidth={2} />
+                    Select
+                  </span>
+                  <p className={styles.introStepText}>Select a letter, glyph or ligature</p>
+                </div>
+                <div className={styles.introStep}>
+                  <span className={styles.introStepBadge}>
+                    <BookA size={16} strokeWidth={2} />
+                    Assign
+                  </span>
+                  <p className={styles.introStepText}>Assign to the respective glyph class</p>
+                </div>
+              </div>
+              <p className={styles.introText}>
+                You can then adjust the geometry or side bearings in the grid view or test them in the editor view
+              </p>
+              <div className={styles.introActions}>
+                <button type="button" className={styles.clearBtn} onClick={dismissFreeDrawIntro}>
+                  Start
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {topMode === "draw" && drawStyle === "grid" && (
