@@ -804,6 +804,11 @@ export default function Home() {
     return [...all];
   }, [editorText, glyphs, metrics, useLigatures]);
 
+  // Collapsed by default — a couple dozen tagged glyphs otherwise pushes the
+  // canvas most of the way off-screen. Not persisted: a fresh page load
+  // always starts collapsed, same as any other "peek, then expand" panel.
+  const [glyphListExpanded, setGlyphListExpanded] = useState(false);
+
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const selectedIdsRef = useRef<Set<string>>(new Set());
 
@@ -2538,8 +2543,9 @@ export default function Home() {
                       aria-checked={kindInput === "alternate"}
                       className={`${styles.modeBtn} ${kindInput === "alternate" ? styles.modeBtnActive : ""}`}
                       onClick={() => setKindInput("alternate")}
+                      title="Alternate"
                     >
-                      Alternate
+                      Alt
                     </button>
                   </div>
                   {kindInput === "ligature" && (
@@ -2640,22 +2646,34 @@ export default function Home() {
         <main className={styles.main}>
 
       {topMode === "draw" && drawStyle === "free" && drawTool === "assign" && glyphs.length > 0 && (
-        <ul className={styles.glyphList}>
-          {glyphs.map((g) => (
-            <li key={g.id} className={styles.glyphItem}>
-              <span className={styles.glyphName}>{g.name}</span>
-              <span className={styles.glyphMeta}>
-                {g.kind === "base" && (g.unicode ?? "no unicode")}
-                {g.kind === "ligature" && `ligature: ${g.components?.join(" + ") || "—"}`}
-                {g.kind === "alternate" && `alt of ${g.alternateOf || "—"}`}
-              </span>
-              <span className={styles.glyphCount}>{g.strokeIds.length} strokes</span>
-              <button type="button" className={styles.untagBtn} onClick={() => handleUntag(g.id)}>
-                untag
-              </button>
-            </li>
-          ))}
-        </ul>
+        <div className={styles.glyphListWrap}>
+          <div className={styles.glyphListHeader}>
+            <span>{glyphs.length} tagged</span>
+            <button
+              type="button"
+              className={styles.glyphListToggle}
+              onClick={() => setGlyphListExpanded((v) => !v)}
+            >
+              {glyphListExpanded ? "Collapse" : "Show all"}
+            </button>
+          </div>
+          <ul className={`${styles.glyphList} ${glyphListExpanded ? "" : styles.glyphListCollapsed}`}>
+            {glyphs.map((g) => (
+              <li key={g.id} className={styles.glyphItem}>
+                <span className={styles.glyphName}>{g.name}</span>
+                <span className={styles.glyphMeta}>
+                  {g.kind === "base" && (g.unicode ?? "no unicode")}
+                  {g.kind === "ligature" && `ligature: ${g.components?.join(" + ") || "—"}`}
+                  {g.kind === "alternate" && `alt of ${g.alternateOf || "—"}`}
+                </span>
+                <span className={styles.glyphCount}>{g.strokeIds.length} strokes</span>
+                <button type="button" className={styles.untagBtn} onClick={() => handleUntag(g.id)}>
+                  untag
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
 
       <div
@@ -2808,8 +2826,9 @@ export default function Home() {
                   aria-checked={kindInput === "alternate"}
                   className={`${styles.modeBtn} ${kindInput === "alternate" ? styles.modeBtnActive : ""}`}
                   onClick={() => setKindInput("alternate")}
+                  title="Alternate"
                 >
-                  Alternate
+                  Alt
                 </button>
               </div>
 

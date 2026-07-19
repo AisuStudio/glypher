@@ -420,13 +420,21 @@
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: .04em;
-  padding: var(--sp-sm) var(--sp-md);
+  padding: var(--sp-sm) 6px;
   border: 0;
   background: var(--color-vanilla);
   color: var(--color-text);
   cursor: pointer;
   flex: 1;
   text-align: center;
+  /* A 3-way toggle (Base/Ligature/Alternate) in a ~230px settings panel has
+     no room to spare — this is a safety net for whatever still doesn't fit
+     (a longer future label, a narrower panel), not the primary fix: prefer
+     a shorter label or less padding over letting this kick in. */
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .modeBtn + .modeBtn {
@@ -501,6 +509,37 @@
   color: var(--color-muted);
 }
 
+.glyphListWrap {
+  border-bottom: 1px solid var(--color-cappuccino);
+  flex-shrink: 0;
+}
+
+.glyphListHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px var(--sp-lg);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  color: var(--color-muted);
+}
+
+.glyphListToggle {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: none;
+  border: 0;
+  color: var(--color-grape);
+  cursor: pointer;
+  padding: 2px 6px;
+}
+
+.glyphListToggle:hover {
+  text-decoration: underline;
+}
+
 .glyphList {
   display: flex;
   flex-wrap: wrap;
@@ -509,7 +548,6 @@
   list-style: none;
   margin: 0;
   padding: var(--sp-sm) var(--sp-lg);
-  border-bottom: 1px solid var(--color-cappuccino);
   /* .main has overflow:hidden (so the canvas below can pan/fill without the
      page itself scrolling) — without its own max-height + scroll, a long
      glyph list just gets hard-clipped past the visible area with no way to
@@ -517,7 +555,15 @@
      the viewport. */
   max-height: 45vh;
   overflow-y: auto;
-  flex-shrink: 0;
+}
+
+/* Collapsed by default (see glyphListHeader's toggle) — a couple dozen
+   tagged glyphs otherwise pushes the canvas most of the way off-screen.
+   ~2.5 rows of pills: enough to recognize "yes, there's a list here" and
+   invite expanding, without dominating the layout. */
+.glyphList.glyphListCollapsed {
+  max-height: 76px;
+  overflow: hidden;
 }
 
 .glyphItem {
