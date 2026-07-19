@@ -47,12 +47,25 @@ const WESTERN_EUROPEAN_EXTRA: string[] = [
 const NUMBERS: string[] = "0123456789".split("");
 
 // Common punctuation actually needed for handwritten text — not an
-// exhaustive symbol set, just what shows up in ordinary sentences.
+// exhaustive symbol set, just what shows up in ordinary sentences. Brackets
+// and ellipsis added alongside Symbols below, since both round out
+// "ordinary sentence" coverage the same way.
 const PUNCTUATION: string[] = [
   ".", ",", "!", "?", ":", ";",
   "'", "‘", "’", "\"", "“", "”",
-  "-", "–", "—",
-  "(", ")", "/", "&", "@",
+  "-", "–", "—", "…",
+  "(", ")", "[", "]", "{", "}", "/", "&", "@",
+];
+
+// Currency and basic math — the highest-frequency symbols outside of
+// letters/figures/punctuation proper. Not an exhaustive symbol catalogue
+// (no Glyphs-style Oldstyle/Tabular/Fullwidth variants — those mean drawing
+// a whole second alphabet in a different style, out of scope for beta).
+const SYMBOLS: string[] = [
+  // Currency
+  "€", "£", "$", "¥", "¢",
+  // Math
+  "+", "−", "×", "÷", "=", "<", ">", "%", "‰", "°",
 ];
 
 // Add more sets here (e.g. Cyrillic) as their own entry — the grid UI picks
@@ -63,6 +76,7 @@ export const CHARACTER_SETS: CharacterSet[] = [
   { id: "western-european", label: "Western European", chars: WESTERN_EUROPEAN_EXTRA },
   { id: "numbers", label: "Numbers", chars: NUMBERS },
   { id: "punctuation", label: "Punctuation", chars: PUNCTUATION },
+  { id: "symbols", label: "Symbols", chars: SYMBOLS },
 ];
 
 export const DEFAULT_CHARACTER_SET_IDS = ["latin-basic", "central-european", "numbers", "punctuation"];
