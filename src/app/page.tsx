@@ -2727,6 +2727,23 @@ export default function Home() {
         </main>
 
         <aside className={styles.settingsPanel} data-chrome-menu>
+          <div className={styles.modeToggle} role="radiogroup" aria-label="View">
+            {VIEW_DEFS.map((v) => {
+              const active = topMode === v.topMode && (!v.drawStyle || drawStyle === v.drawStyle);
+              return (
+                <button
+                  key={v.key}
+                  type="button"
+                  role="radio"
+                  aria-checked={active}
+                  className={`${styles.modeBtn} ${active ? styles.modeBtnActive : ""}`}
+                  onClick={() => selectView(v)}
+                >
+                  {v.label.replace(" View", "")}
+                </button>
+              );
+            })}
+          </div>
           <div className={styles.settingsPanelLabel}>Settings</div>
           {topMode === "draw" && drawStyle === "free" && drawTool === "assign" && (
             <>
