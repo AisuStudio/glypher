@@ -439,6 +439,13 @@ export default function Home() {
   const currentPointsRef = useRef<StrokePoint[]>([]);
   const lassoRef = useRef<[number, number][]>([]);
   const redrawRef = useRef<() => void>(() => {});
+  // Grid became the default view, so Free's canvas can mount hidden
+  // (display:none) — its getBoundingClientRect() is 0x0 then, and stays
+  // that way (a stale 0x0 backing store, no visible raster/strokes) until
+  // something re-measures it. window's own "resize" event never fires just
+  // because a view switch changed display, so the effect below calls this
+  // explicitly the moment drawStyle actually becomes "free".
+  const resizeRef = useRef<() => void>(() => {});
   // Undo/Redo is a full snapshot stack (strokes + glyphs together, since a
   // deletion/reshape can also create/orphan a glyph) — not just "remove the
   // last added stroke," which is all the previous model could do. That
@@ -998,6 +1005,7 @@ export default function Home() {
       canvas.getContext("2d")?.scale(dpr, dpr);
       redraw();
     }
+    resizeRef.current = resize;
 
     // Restore persisted strokes. Glyphs are already loaded via useState's lazy
     // initializer, so just prime the ref the first redraw() below will read.
@@ -1246,6 +1254,14 @@ export default function Home() {
   useEffect(() => {
     drawStyleRef.current = drawStyle;
   }, [drawStyle]);
+
+  // Free's canvas can now mount hidden (Grid is the default view) — the
+  // moment the user actually switches into it, re-measure and redraw so its
+  // backing store isn't still sized for whatever it was (0x0, at first
+  // mount) the last time resize() happened to run.
+  useEffect(() => {
+    if (topMode === "draw" && drawStyle === "free") resizeRef.current();
+  }, [topMode, drawStyle]);
 
   // Keep Free mode's line raster in sync whenever its spacing changes.
   useEffect(() => {
