@@ -562,12 +562,6 @@ export default function Home() {
     });
   }
 
-  const gridSlots: GridSlot[] = [
-    ...CHARACTER_SETS.filter((s) => activeSetIds.has(s.id))
-      .flatMap((s) => s.chars)
-      .map((name): GridSlot => ({ name, kind: "base" })),
-    ...extraGridSlots,
-  ];
   const [metrics, setMetrics] = useState<Metrics>(() => loadMetrics());
   const [cellSize, setCellSize] = useState(() => {
     if (typeof window === "undefined") return 90;
@@ -657,6 +651,19 @@ export default function Home() {
   function updateEditorFontSize(pt: number) {
     setEditorFontSize(pt);
     window.localStorage.setItem("fontane.editorFontSize.v1", String(pt));
+  }
+
+  // Off by default — Editor's char-by-char composition already matches what
+  // most tagged glyphs are (kind:"base"); substituting a run like "fi" for a
+  // tagged ligature is a deliberate opt-in, not assumed.
+  const [useLigatures, setUseLigatures] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.localStorage.getItem("fontane.useLigatures.v1") === "true";
+  });
+
+  function updateUseLigatures(value: boolean) {
+    setUseLigatures(value);
+    window.localStorage.setItem("fontane.useLigatures.v1", String(value));
   }
 
   function toggleCharacterSet(id: string) {
@@ -762,6 +769,24 @@ export default function Home() {
   // array and loading afterward would let the save-on-change effect below fire once
   // with [] and clobber whatever was already in storage before the real data arrives.
   const [glyphs, setGlyphs] = useState<Glyph[]>(() => loadGlyphs());
+
+  // Every ligature/alternate already tagged (e.g. via Free's Assign panel)
+  // gets its own Grid cell automatically — no need to re-declare it via
+  // "Add Glyph" just to see/edit it here. Deduped against extraGridSlots by
+  // name+kind so a manually-added not-yet-drawn slot doesn't collide with
+  // the same slot once a glyph starts existing for it (same key either way).
+  const extraSlotKeys = new Set(extraGridSlots.map((s) => `${s.kind}:${s.name}`));
+  const taggedSlots: GridSlot[] = glyphs
+    .filter((g) => g.kind !== "base" && !extraSlotKeys.has(`${g.kind}:${g.name}`))
+    .map((g): GridSlot => ({ name: g.name, kind: g.kind, components: g.components, alternateOf: g.alternateOf }));
+
+  const gridSlots: GridSlot[] = [
+    ...CHARACTER_SETS.filter((s) => activeSetIds.has(s.id))
+      .flatMap((s) => s.chars)
+      .map((name): GridSlot => ({ name, kind: "base" })),
+    ...taggedSlots,
+    ...extraGridSlots,
+  ];
   const taggedIdsRef = useRef<Set<string>>(new Set());
   // Strokes belonging to a Grid-native glyph (cellWidth/cellHeight set) live in
   // Grid-cell-local coordinate space, not Free-canvas space — Free's redraw()
@@ -774,10 +799,10 @@ export default function Home() {
   const missingEditorGlyphs = useMemo(() => {
     const all = new Set<string>();
     for (const line of editorText.split("\n")) {
-      for (const c of layoutText(line, glyphs, completedRef.current, metrics).missing) all.add(c);
+      for (const c of layoutText(line, glyphs, completedRef.current, metrics, useLigatures).missing) all.add(c);
     }
     return [...all];
-  }, [editorText, glyphs, metrics]);
+  }, [editorText, glyphs, metrics, useLigatures]);
 
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const selectedIdsRef = useRef<Set<string>>(new Set());
@@ -2710,6 +2735,7 @@ export default function Home() {
           text={editorText}
           onTextChange={updateEditorText}
           fontSize={editorFontSize}
+          useLigatures={useLigatures}
         />
       )}
 
@@ -2984,6 +3010,16 @@ export default function Home() {
                     onChange={(e) => updateEditorFontSize(Number(e.target.value))}
                   />
                   <span className={styles.val}>{editorFontSize}pt</span>
+                </label>
+                <label className={styles.sliderRow}>
+                  <span>
+                    <input
+                      type="checkbox"
+                      checked={useLigatures}
+                      onChange={(e) => updateUseLigatures(e.target.checked)}
+                    />{" "}
+                    Ligatures
+                  </span>
                 </label>
               </div>
               {missingEditorGlyphs.length > 0 && (

@@ -18,6 +18,7 @@ type Props = {
   text: string;
   onTextChange: (text: string) => void;
   fontSize: number;
+  useLigatures: boolean;
 };
 
 const INK_COLOR = "#1f1934"; // blueberry, same as untagged/default ink everywhere else
@@ -77,6 +78,15 @@ function fillOutline(ctx: CanvasRenderingContext2D, outline: [number, number][])
   ctx.fill();
 }
 
+// Most entries (space/missing, and any glyph without ligature substitution)
+// stand for exactly one raw text character; a ligature-substituted glyph
+// entry stands for however many characters useLigatures folded into it (see
+// layoutText.ts). The caret math below has to walk entries in char-index
+// space, not entry-index space, so it needs this rather than entries.length.
+function entryCharLength(entry: LaidOutEntry): number {
+  return entry.kind === "glyph" ? entry.charLength : 1;
+}
+
 type WrappedLine = { entries: LaidOutEntry[]; startIndex: number };
 
 // Soft-wraps one paragraph's already-laid-out entries (one entry per
@@ -126,6 +136,7 @@ export default function EditorPanel({
   text,
   onTextChange,
   fontSize,
+  useLigatures,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   // The scroll viewport around the canvas — its own box size only ever
@@ -205,7 +216,7 @@ export default function EditorPanel({
       let lineY = TOP_PADDING;
       const paragraphs = text.split("\n");
       for (const paragraph of paragraphs) {
-        const layout = layoutText(paragraph, glyphs, strokes, metrics);
+        const layout = layoutText(paragraph, glyphs, strokes, metrics, useLigatures);
         const wrappedLines = wrapEntries(layout.entries, maxLineWidth);
 
         // Each entry's offsetX was computed against this cumulative cursor
@@ -235,14 +246,25 @@ export default function EditorPanel({
             }
           }
 
-          if (!caretDrawn && remainingToCaret <= lineEntries.length) {
+          const lineCharLength = lineEntries.reduce((sum, e) => sum + entryCharLength(e), 0);
+
+          if (!caretDrawn && remainingToCaret <= lineCharLength) {
+            // Walk entries (not raw char indices) so a ligature's merged
+            // glyph is never split mid-entry — a caret position that falls
+            // inside one snaps to its left edge instead.
             let x = 0;
-            for (let i = 0; i < remainingToCaret && i < lineEntries.length; i++) x += lineEntries[i].advanceWidth;
+            let charsWalked = 0;
+            for (const entry of lineEntries) {
+              const len = entryCharLength(entry);
+              if (charsWalked + len > remainingToCaret) break;
+              x += entry.advanceWidth;
+              charsWalked += len;
+            }
             caretCharX = x;
             caretLineIndex = lines.length;
             caretDrawn = true;
           }
-          remainingToCaret -= lineEntries.length;
+          remainingToCaret -= lineCharLength;
 
           lines.push({ y: lineY, height: layout.height, minX, glyphSets });
           lineY += layout.height + LINE_GAP;
@@ -310,7 +332,7 @@ export default function EditorPanel({
     const resizeObserver = new ResizeObserver(draw);
     resizeObserver.observe(scrollEl);
     return () => resizeObserver.disconnect();
-  }, [text, glyphs, strokes, metrics, settings, sizeFactor, caretIndex, caretVisible]);
+  }, [text, glyphs, strokes, metrics, settings, sizeFactor, caretIndex, caretVisible, useLigatures]);
 
   return (
     <div className={styles.editorPanel}>

@@ -24,6 +24,13 @@ export type LaidOutEntry =
       offsetX: number;
       offsetY: number;
       advanceWidth: number;
+      // How many raw text characters this one entry stands for — 1 for a
+      // normal glyph, >1 when useLigatures substituted a multi-character
+      // sequence (e.g. "fi") with a single ligature glyph. Callers that map
+      // a caret/selection index (counted in raw characters) onto entries —
+      // currently only EditorPanel.tsx — need this to stay aligned; callers
+      // that only care about drawn width/position can ignore it.
+      charLength: number;
     }
   | { kind: "space" | "missing"; advanceWidth: number; char: string };
 
@@ -54,9 +61,16 @@ function bounds(points: [number, number][]): { xmin: number; xmax: number; ymin:
 // — but without their y-flip: font space is y-up with baseline at 0, while
 // here we stay in canvas/SVG y-down space throughout (the row is rendered
 // straight into an <svg>, not compiled into a font), so a plain scale+
-// translate is enough. No kerning, no ligature/alternate substitution — each
-// glyph advances by its own drawn/calibrated width, left to right.
-export function layoutText(text: string, glyphs: Glyph[], strokes: Stroke[], metrics: Metrics): TextLayout {
+// translate is enough. No kerning — but with useLigatures on, a run of
+// characters matching a tagged ligature's components (e.g. "f"+"i") is
+// substituted with that glyph as a single entry, longest match first.
+export function layoutText(
+  text: string,
+  glyphs: Glyph[],
+  strokes: Stroke[],
+  metrics: Metrics,
+  useLigatures = false
+): TextLayout {
   const byId = new Map(strokes.map((s) => [s.id, s]));
   // glyphs is append-only, so building the map in order already gives
   // "last tagged wins" for duplicate names — same tie-break GridCell.tsx uses
@@ -64,22 +78,54 @@ export function layoutText(text: string, glyphs: Glyph[], strokes: Stroke[], met
   const baseByName = new Map<string, Glyph>();
   for (const g of glyphs) if (g.kind === "base") baseByName.set(g.name, g);
 
+  // Keyed by the literal typed sequence a ligature substitutes (its
+  // components joined, e.g. "fi") — NOT the glyph's own free-typed name,
+  // which is often a font-file convention like "f_i.liga" the typed text
+  // never contains.
+  const ligatureByKey = new Map<string, Glyph>();
+  let maxLigatureLen = 1;
+  if (useLigatures) {
+    for (const g of glyphs) {
+      if (g.kind !== "ligature" || !g.components || g.components.length < 2) continue;
+      const key = g.components.join("");
+      ligatureByKey.set(key, g);
+      maxLigatureLen = Math.max(maxLigatureLen, g.components.length);
+    }
+  }
+
   const entries: LaidOutEntry[] = [];
   const missing = new Set<string>();
   let cursorX = 0;
 
-  for (const char of Array.from(text)) {
+  const chars = Array.from(text);
+  let i = 0;
+  while (i < chars.length) {
+    const char = chars[i];
     if (char === " ") {
       entries.push({ kind: "space", advanceWidth: SPACE_ADVANCE, char });
       cursorX += SPACE_ADVANCE;
+      i += 1;
       continue;
     }
 
-    const glyph = baseByName.get(char);
+    let charLength = 1;
+    let glyph = baseByName.get(char);
+    if (ligatureByKey.size > 0) {
+      for (let len = Math.min(maxLigatureLen, chars.length - i); len >= 2; len--) {
+        const candidate = ligatureByKey.get(chars.slice(i, i + len).join(""));
+        if (candidate) {
+          glyph = candidate;
+          charLength = len;
+          break;
+        }
+      }
+    }
+
     if (!glyph) {
       missing.add(char);
       entries.push({ kind: "missing", advanceWidth: SPACE_ADVANCE, char });
       cursorX += SPACE_ADVANCE;
+      i += 1;
       continue;
     }
 
@@ -117,6 +163,7 @@ export function layoutText(text: string, glyphs: Glyph[], strokes: Stroke[], met
         missing.add(char);
         entries.push({ kind: "missing", advanceWidth: SPACE_ADVANCE, char });
         cursorX += SPACE_ADVANCE;
+        i += 1;
         continue;
       }
       const h = bbox.ymax - bbox.ymin;
@@ -126,8 +173,9 @@ export function layoutText(text: string, glyphs: Glyph[], strokes: Stroke[], met
       advanceWidth = (bbox.xmax - bbox.xmin) * scale + 2 * FALLBACK_SIDE_BEARING;
     }
 
-    entries.push({ kind: "glyph", glyph, strokePointSets, scale, offsetX, offsetY, advanceWidth });
+    entries.push({ kind: "glyph", glyph, strokePointSets, scale, offsetX, offsetY, advanceWidth, charLength });
     cursorX += advanceWidth;
+    i += charLength;
   }
 
   return {
