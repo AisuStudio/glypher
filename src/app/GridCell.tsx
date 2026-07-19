@@ -190,6 +190,23 @@ type Props = {
   // the nominal one, to keep a glyph's stored points and its guide-line
   // metrics rescaling in lockstep with whatever's actually on screen.
   onResize?: (width: number, height: number) => void;
+  // This cell's authoritative width in CSS px — either the global Width
+  // slider's value or a glyph's own override (page.tsx resolves which).
+  // Applied directly to the wrapper's style, not derived from a CSS grid
+  // track, so a single cell can be wider or narrower than its neighbors.
+  widthPx: number;
+  // Height stays global-only (no per-glyph override, unlike width) — .grid
+  // is a flex-wrap now, not a CSS grid, so nothing sizes rows for us
+  // automatically the way grid-auto-rows used to.
+  heightPx: number;
+  // Present only once a glyph exists here (see page.tsx) — dragging the
+  // right-edge handle calls this once, on release, with the final width;
+  // the live drag itself mutates the DOM directly (see handleWidthPointerMove)
+  // rather than round-tripping through React on every pointermove.
+  onWidthCommit?: (newWidthPx: number) => void;
+  // Double-clicking the handle clears the glyph's own override so it goes
+  // back to following the global Width slider.
+  onWidthReset?: () => void;
 };
 
 export default function GridCell({
@@ -205,7 +222,12 @@ export default function GridCell({
   rightBearing = DEFAULT_RIGHT_BEARING,
   onBearingsChange,
   onResize,
+  widthPx,
+  heightPx,
+  onWidthCommit,
+  onWidthReset,
 }: Props) {
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const pointsRef = useRef<StrokePoint[]>([]);
   const drawingRef = useRef(false);
@@ -752,13 +774,78 @@ export default function GridCell({
 
   const unicode = unicodeFor(label);
 
+  // Drags the wrapper's own width directly (not through React state) for a
+  // smooth live resize — the canvas inside already has a ResizeObserver
+  // (see the mount effect above) that reacts to exactly this kind of
+  // layout-driven size change, so it keeps redrawing at the right size for
+  // free. Only the FINAL width, on release, goes back up to the parent —
+  // that's the one moment a glyph's widthRatio actually needs to change.
+  const widthDragRef = useRef<{ startX: number; startWidth: number } | null>(null);
+  const widthHandleRef = useRef<HTMLDivElement | null>(null);
+
+  // Whether this cell HAS a glyph (and so has anything to persist a resize
+  // into) is only known once glyphs have loaded from localStorage — empty
+  // during SSR, populated before the client's first paint. Deriving the
+  // handle's disabled look directly in JSX would make that attribute itself
+  // mismatch between server and client markup; setting it imperatively here
+  // (client-only, post-hydration) sidesteps that entirely — the JSX below
+  // never renders a style attribute for this element at all.
+  useEffect(() => {
+    const el = widthHandleRef.current;
+    if (!el) return;
+    el.style.pointerEvents = onWidthCommit ? "auto" : "none";
+    el.style.opacity = onWidthCommit ? "1" : "0";
+  }, [onWidthCommit]);
+
+  function handleWidthPointerDown(e: React.PointerEvent) {
+    e.stopPropagation();
+    (e.target as Element).setPointerCapture(e.pointerId);
+    widthDragRef.current = {
+      startX: e.clientX,
+      startWidth: wrapperRef.current?.getBoundingClientRect().width ?? widthPx,
+    };
+  }
+
+  function handleWidthPointerMove(e: React.PointerEvent) {
+    if (!widthDragRef.current || !wrapperRef.current) return;
+    const delta = e.clientX - widthDragRef.current.startX;
+    const newWidth = Math.max(30, widthDragRef.current.startWidth + delta);
+    wrapperRef.current.style.width = `${newWidth}px`;
+  }
+
+  function handleWidthPointerUp(e: React.PointerEvent) {
+    if (!widthDragRef.current || !wrapperRef.current) return;
+    widthDragRef.current = null;
+    (e.target as Element).releasePointerCapture(e.pointerId);
+    onWidthCommit?.(wrapperRef.current.getBoundingClientRect().width);
+  }
+
   return (
-    <div className={styles.gridCell}>
+    <div className={styles.gridCell} ref={wrapperRef} style={{ width: widthPx, height: heightPx }}>
       <canvas ref={canvasRef} className={styles.gridCellCanvas} />
       <div className={styles.gridCellLabelBar}>
         <span className={styles.gridCellLabelChar}>{label}</span>
         {unicode && <span className={styles.gridCellLabelUnicode}>{unicode}</span>}
       </div>
+      {/* Always rendered (never conditional on whether a glyph exists) —
+          glyphs load from localStorage, which is empty during SSR and
+          populated by the time the client hydrates, so gating this node's
+          presence (or its style — see the effect above) on that would
+          mismatch server/client output. Disabled when there's no glyph:
+          nothing to resize in an empty cell, and no onWidthCommit to
+          persist it into anyway. */}
+      <div
+        ref={widthHandleRef}
+        className={styles.gridCellWidthHandle}
+        onPointerDown={handleWidthPointerDown}
+        onPointerMove={handleWidthPointerMove}
+        onPointerUp={handleWidthPointerUp}
+        onDoubleClick={(e) => {
+          e.stopPropagation();
+          onWidthReset?.();
+        }}
+        title="Drag to resize this glyph's cell — double-click to reset"
+      />
     </div>
   );
 }

@@ -18,6 +18,13 @@ export type Glyph = {
   rightBearing?: number;
   cellWidth?: number;
   cellHeight?: number;
+  // Grid View only — this glyph's own cell width as a ratio of cellSize,
+  // same unit as the global Width slider's cellWidthRatio (page.tsx), but
+  // overriding it for just this glyph. Undefined means "follow the global
+  // slider" — a narrow "i" and a wide "fi" ligature can't both look right
+  // sharing one uniform cell width, so this lets a cell be manually resized
+  // (drag the cell's right edge in Grid) without affecting every other cell.
+  widthRatio?: number;
 };
 
 // Only meaningful for a name that's exactly one Unicode codepoint (typed straight off a

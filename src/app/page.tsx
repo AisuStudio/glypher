@@ -642,8 +642,6 @@ export default function Home() {
     window.localStorage.setItem("fontane.keepProportions.v1", String(value));
   }
 
-  const cellWidth = cellSize * cellWidthRatio;
-
   // Each GridCell's own actual rendered size, keyed by letter — the label
   // bar under the canvas eats some of the grid row's nominal height (see
   // GridCell's onResize), so cellWidth/cellHeightPx alone don't match what a
@@ -2119,6 +2117,28 @@ export default function Home() {
     );
   }
 
+  // Dragging a cell's width handle reports a final pixel width — stored as
+  // a ratio of cellSize (same unit as the global Width slider) so it keeps
+  // making sense if the user later changes Cell size too.
+  function handleGlyphWidthChange(slot: GridSlot, newWidthPx: number) {
+    const newRatio = Math.max(newWidthPx / cellSize, 0.2);
+    setGlyphs((gs) =>
+      gs.map((g) => (g.kind === slot.kind && g.name === slot.name ? { ...g, widthRatio: newRatio } : g))
+    );
+  }
+
+  // Double-clicking the handle drops the override — the cell goes back to
+  // following the global Width slider like every other un-overridden one.
+  function handleGlyphWidthReset(slot: GridSlot) {
+    setGlyphs((gs) =>
+      gs.map((g) => {
+        if (g.kind !== slot.kind || g.name !== slot.name) return g;
+        const { widthRatio: _widthRatio, ...rest } = g;
+        return rest;
+      })
+    );
+  }
+
   function handleDownloadJson() {
     trackExport("json");
     const blob = new Blob([exportJson], { type: "application/json" });
@@ -2796,18 +2816,7 @@ export default function Home() {
       </div>
 
       {topMode === "draw" && drawStyle === "grid" && (
-        <div
-          className={styles.grid}
-          style={{
-            // Fixed track sizes (no 1fr stretch) so a cell's actual rendered
-            // pixel size always matches cellWidth/cellHeightPx exactly — the
-            // anchor-space rescale math (fromAnchorSpace/toAnchorSpace)
-            // assumes that equivalence and drifts if the grid is free to
-            // stretch columns to fill leftover row width.
-            gridTemplateColumns: `repeat(auto-fill, ${cellWidth}px)`,
-            gridAutoRows: `${cellSize * CELL_ASPECT_RATIO}px`,
-          }}
-        >
+        <div className={styles.grid}>
           {gridSlots.map((slot) => {
             const { name, kind } = slot;
             const cellKey = `${kind}:${name}`;
@@ -2819,13 +2828,17 @@ export default function Home() {
               : [];
             const needsFit = glyph && !(glyph.cellWidth && glyph.cellHeight);
             const cellHeightPx = cellSize * CELL_ASPECT_RATIO;
+            // A glyph's own widthRatio (dragged per-cell — see the width
+            // handle in GridCell) overrides the global Width slider just
+            // for this cell; everything else still follows cellWidthRatio.
+            const effectiveWidthPx = (glyph?.widthRatio ?? cellWidthRatio) * cellSize;
             // The canvas's own measured size (once GridCell has reported
-            // in) — not the nominal cellWidth/cellHeightPx, which the label
-            // bar underneath already eats a few px of. Using the nominal
-            // value here made a freshly-drawn stroke's anchor not quite
-            // match what fromAnchorSpace later rescales against, so it
+            // in) — not the nominal effectiveWidthPx/cellHeightPx, which the
+            // label bar underneath already eats a few px of. Using the
+            // nominal value here made a freshly-drawn stroke's anchor not
+            // quite match what fromAnchorSpace later rescales against, so it
             // visibly jumped a few pixels the instant the stroke committed.
-            const liveWidth = cellDims[cellKey]?.width ?? cellWidth;
+            const liveWidth = cellDims[cellKey]?.width ?? effectiveWidthPx;
             const liveHeight = cellDims[cellKey]?.height ?? cellHeightPx;
             // The geometric scale this fit/rescale applies to point
             // positions has to also apply to stroke width — otherwise a
@@ -2864,6 +2877,10 @@ export default function Home() {
                 rightBearing={glyph?.rightBearing}
                 onBearingsChange={(left, right) => handleBearingsChange(slot, left, right)}
                 onResize={(width, height) => handleCellResize(cellKey, width, height)}
+                widthPx={effectiveWidthPx}
+                heightPx={cellHeightPx}
+                onWidthCommit={glyph ? (newWidthPx) => handleGlyphWidthChange(slot, newWidthPx) : undefined}
+                onWidthReset={() => handleGlyphWidthReset(slot)}
               />
             );
           })}

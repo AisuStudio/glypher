@@ -862,25 +862,49 @@
 .grid {
   flex: 1;
   min-height: 0;
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
   gap: 1px;
   background: var(--color-cappuccino);
   overflow: auto;
-  align-content: start;
   padding: 40px;
 }
 
 .gridCell {
-  /* Width comes from .grid's grid-template-columns, height from its
-     grid-auto-rows — both driven independently by the Cell width/Cell size
-     sliders (see page.tsx), not a fixed aspect-ratio. */
+  /* Width and height are both explicit inline styles from page.tsx (the
+     global Cell size/Width sliders, or a glyph's own widthRatio override —
+     see the width handle below) — flex-shrink:0 so .grid's flex-wrap never
+     shrinks a cell to fit a row, which would silently disagree with the
+     anchor-space rescale math that assumes the cell is exactly the size it
+     was told to be. */
   position: relative;
   display: flex;
   flex-direction: column;
+  flex-shrink: 0;
   background: var(--color-vanilla);
   overflow: hidden;
   touch-action: none;
+}
+
+.gridCellWidthHandle {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  width: 6px;
+  height: 100%;
+  cursor: ew-resize;
+  z-index: 2;
+  /* Safe default for the first paint, before GridCell.tsx's effect can run
+     (see its comment) — invisible/inert until a glyph is confirmed to
+     exist, rather than briefly looking interactive for an empty cell. */
+  opacity: 0;
+  pointer-events: none;
+}
+
+.gridCellWidthHandle:hover,
+.gridCellWidthHandle:active {
+  background: rgba(81, 0, 255, 0.35); /* grape, translucent — matches the bearing/anchor draggable-affordance color */
 }
 
 .gridCellCanvas {
