@@ -191,15 +191,23 @@ function bandFor(name: string, metrics: Metrics): { top: number; bottom: number 
 // a lowercase "a" belongs in the x-height, not stretched up to the full
 // ascender height) — same idea as layoutText.ts's bbox-fallback transform
 // but centered (a single grid cell isn't part of a text line) and band-aware.
+// Returns the computed scale alongside the fitted points — a Free-tagged
+// glyph's raw pen coordinates are captured on the large Free canvas (e.g.
+// hundreds of px tall), so fitting them into a small Grid cell is always a
+// dramatic scale-down. Callers MUST fold this into the stroke's widthScale
+// before rendering, or the stroke thickness stays calibrated for the
+// original Free-canvas size and renders wildly too thick for the shrunk
+// letterforms — the same class of bug fixed for Editor mode's font-size
+// scaling (see EditorPanel.tsx's effectiveSettingsFor).
 function fitStrokesToCell(
   glyphStrokes: Stroke[],
   glyphName: string,
   cellWidthPx: number,
   cellHeightPx: number,
   metrics: Metrics
-): StrokePoint[][] {
+): { points: StrokePoint[][]; scale: number } {
   const allPoints = glyphStrokes.flatMap((s) => s.points);
-  if (allPoints.length === 0) return glyphStrokes.map(() => []);
+  if (allPoints.length === 0) return { points: glyphStrokes.map(() => []), scale: 1 };
   let xmin = Infinity, xmax = -Infinity, ymin = Infinity, ymax = -Infinity;
   for (const [x, y] of allPoints) {
     xmin = Math.min(xmin, x); xmax = Math.max(xmax, x);
@@ -213,9 +221,12 @@ function fitStrokesToCell(
   const offsetY = bottomPx - ymax * scale;
   const w = (xmax - xmin) * scale;
   const offsetX = (cellWidthPx - w) / 2 - xmin * scale;
-  return glyphStrokes.map((s) =>
-    s.points.map((p) => [p[0] * scale + offsetX, p[1] * scale + offsetY, p[2]] as StrokePoint)
-  );
+  return {
+    points: glyphStrokes.map((s) =>
+      s.points.map((p) => [p[0] * scale + offsetX, p[1] * scale + offsetY, p[2]] as StrokePoint)
+    ),
+    scale,
+  };
 }
 
 // A Grid-native glyph's stroke points are stored in the pixel space of
@@ -242,6 +253,26 @@ function fromAnchorSpace(
   let scaleY = currentHeight / anchorHeight;
   if (keepProportions) scaleX = scaleY = Math.min(scaleX, scaleY);
   return points.map(([x, y, p]) => [x * scaleX, y * scaleY, p] as StrokePoint);
+}
+
+// Same scale fromAnchorSpace applies to a glyph's points, but as a single
+// number for stroke width — a non-uniform (keepProportions off) X/Y stretch
+// has no one "correct" width scale, so this uses the same geometric-mean
+// convention as the Scale tool's own widthScale bake-in (page.tsx's
+// handleTransformPointerDown), which is symmetric for a pure width- or
+// height-only change and a reasonable average otherwise.
+function anchorSpaceWidthScale(
+  anchorWidth: number | undefined,
+  anchorHeight: number | undefined,
+  currentWidth: number,
+  currentHeight: number,
+  keepProportions = false
+): number {
+  if (!anchorWidth || !anchorHeight) return 1;
+  let scaleX = currentWidth / anchorWidth;
+  let scaleY = currentHeight / anchorHeight;
+  if (keepProportions) scaleX = scaleY = Math.min(scaleX, scaleY);
+  return Math.sqrt(Math.abs(scaleX * scaleY));
 }
 
 function toAnchorSpace(
@@ -2715,12 +2746,26 @@ export default function Home() {
             // visibly jumped a few pixels the instant the stroke committed.
             const liveWidth = cellDims[cellKey]?.width ?? cellWidth;
             const liveHeight = cellDims[cellKey]?.height ?? cellHeightPx;
-            const fittedPoints = needsFit
+            // The geometric scale this fit/rescale applies to point
+            // positions has to also apply to stroke width — otherwise a
+            // Free-tagged glyph (always a dramatic scale-down, from a
+            // large Free-canvas bbox to a small cell) renders with its
+            // original Free-canvas ink weight, wildly too thick for the
+            // shrunk letterforms.
+            const fitScale = needsFit
               ? fitStrokesToCell(glyphStrokes, name, liveWidth, liveHeight, metrics)
-              : glyphStrokes.map((s) =>
-                  fromAnchorSpace(s.points, glyph?.cellWidth, glyph?.cellHeight, liveWidth, liveHeight, keepProportions)
-                );
-            const cellStrokes = glyphStrokes.map((s, i) => ({ id: s.id, points: fittedPoints[i], widthScale: s.widthScale }));
+              : {
+                  points: glyphStrokes.map((s) =>
+                    fromAnchorSpace(s.points, glyph?.cellWidth, glyph?.cellHeight, liveWidth, liveHeight, keepProportions)
+                  ),
+                  scale: anchorSpaceWidthScale(glyph?.cellWidth, glyph?.cellHeight, liveWidth, liveHeight, keepProportions),
+                };
+            const fittedPoints = fitScale.points;
+            const cellStrokes = glyphStrokes.map((s, i) => ({
+              id: s.id,
+              points: fittedPoints[i],
+              widthScale: (s.widthScale ?? 1) * fitScale.scale,
+            }));
             return (
               <GridCell
                 key={cellKey}
