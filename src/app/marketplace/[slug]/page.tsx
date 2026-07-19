@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { getSupabase } from "@/lib/supabase";
-import { publicFontUrl, SAMPLE_TEXT } from "@/lib/marketplace";
+import { publicFontUrl, getFontGlyphSheet, SAMPLE_TEXT } from "@/lib/marketplace";
 import ShareButton from "./ShareButton";
 import PageviewTracker from "../PageviewTracker";
 import MarketplaceNav from "../MarketplaceNav";
@@ -43,7 +43,7 @@ export default async function FontOverviewPage({
 }) {
   const { slug } = await params;
   const { notrack } = await searchParams;
-  const font = await getFont(slug);
+  const [font, glyphSheet] = await Promise.all([getFont(slug), getFontGlyphSheet(slug)]);
   if (!font) notFound();
 
   return (
@@ -108,6 +108,29 @@ export default async function FontOverviewPage({
           </a>
           <ShareButton slug={font.slug} />
         </div>
+
+        {glyphSheet && glyphSheet.glyphs.length > 0 && (
+          <div style={{ marginTop: 40 }}>
+            <h2 style={{ fontSize: 16, marginBottom: 16, opacity: 0.6 }}>all glyphs ({glyphSheet.glyphs.length})</h2>
+            {/* Rendered directly from each glyph's own outline, not through
+                @font-face text — ligature/alternate glyphs have no cmap
+                entry (no GSUB either), so typing text can never reach them.
+                This is the only view that shows literally every glyph. */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(48px, 1fr))", gap: 4 }}>
+              {glyphSheet.glyphs.map((g) => (
+                <svg
+                  key={g.name}
+                  viewBox={`0 ${-glyphSheet.ascender} ${g.advanceWidth} ${glyphSheet.ascender - glyphSheet.descender}`}
+                  preserveAspectRatio="xMidYMid meet"
+                  style={{ width: "100%", height: 48, border: "1px solid rgba(31,25,52,0.15)", borderRadius: 4 }}
+                >
+                  <title>{g.name}</title>
+                  <path d={g.d} fill="#1f1934" />
+                </svg>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

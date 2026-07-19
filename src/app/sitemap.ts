@@ -8,5 +8,11 @@ export default function sitemap(): MetadataRoute.Sitemap {
       changeFrequency: "monthly",
       priority: 1,
     },
+    {
+      url: "https://fontane.studio/legal",
+      lastModified: "2026-07-19",
+      changeFrequency: "yearly",
+      priority: 0.3,
+    },
   ];
 }

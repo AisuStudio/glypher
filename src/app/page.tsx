@@ -16,6 +16,7 @@ import { loadMetrics, saveMetrics, DEFAULT_METRICS, type Metrics } from "@/lib/m
 import { loadSettings, saveSettings, DEFAULT_SETTINGS, type StrokeSettings } from "@/lib/settings";
 import { downloadProjectFile, parseProjectFile, applyProjectFile } from "@/lib/projectFile";
 import { layoutText } from "@/lib/layoutText";
+import { SAMPLE_TEXT } from "@/lib/marketplace";
 import {
   Undo2,
   Redo2,
@@ -836,7 +837,11 @@ export default function Home() {
   // EditorPanel itself (which only owns the canvas + its hidden input).
   const missingEditorGlyphs = useMemo(() => {
     const all = new Set<string>();
-    for (const line of editorText.split("\n")) {
+    // Empty editorText falls back to the same specimen pangram EditorPanel
+    // itself renders in that case (see its displayText) — otherwise this
+    // warning would silently miss whatever the canvas is actually showing.
+    const textToCheck = editorText || SAMPLE_TEXT;
+    for (const line of textToCheck.split("\n")) {
       for (const c of layoutText(line, glyphs, completedRef.current, metrics, useLigatures).missing) all.add(c);
     }
     return [...all];
@@ -2310,6 +2315,9 @@ export default function Home() {
               >
                 See &amp; Suggest Features
               </a>
+              <Link href="/legal" role="menuitem" className={styles.dropdownItem} onClick={() => setOpenMenu(null)}>
+                Imprint &amp; Privacy
+              </Link>
             </div>
           )}
         </div>
@@ -3296,6 +3304,14 @@ export default function Home() {
                   exists for strokes that trace their own outline rather than a centerline, so it&apos;s left out of
                   Nudge/Anchor editing and the Skeleton SVG export (see below), where a true centerline is what&apos;s
                   needed.
+                </li>
+                <li>
+                  <strong>The Free Draw workflow</strong> — write freely, select, and assign single letters,
+                  numbers, or other glyphs; you can also assign ligatures and alternate letters this way. Three
+                  steps: <strong>Draw</strong> to create your letter shapes, <strong>Select</strong> to lasso a
+                  letter, glyph, or ligature, then <strong>Assign</strong> to name it into the respective glyph
+                  class. From there you can adjust the geometry or side bearings in Grid, or test the result in
+                  Editor.
                 </li>
                 <li>
                   <strong>Select + Assign</strong> (Free only) — lasso strokes with Select, then switch to Assign

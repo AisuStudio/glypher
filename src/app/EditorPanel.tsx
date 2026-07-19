@@ -5,6 +5,7 @@ import { getStroke } from "perfect-freehand";
 import styles from "./page.module.css";
 import { layoutText, type LaidOutEntry } from "@/lib/layoutText";
 import { outlineToPath, type PathCommand } from "@/lib/contour";
+import { SAMPLE_TEXT } from "@/lib/marketplace";
 import type { Glyph } from "@/lib/glyphs";
 import type { Stroke, StrokePoint } from "@/lib/strokes";
 import type { Metrics } from "@/lib/metrics";
@@ -22,7 +23,6 @@ type Props = {
 };
 
 const INK_COLOR = "#1f1934"; // blueberry, same as untagged/default ink everywhere else
-const PLACEHOLDER_COLOR = "#9e9c95"; // hazelnut — muted, matches --color-muted
 const LINE_GAP = 24; // breathing room between stacked lines, beyond each line's own ascender/descender
 // bbox-fallback glyphs (Write-tagged, no Grid calibration) can reach up to
 // 40px above y=0 by construction (layoutText.ts's TARGET_CAP_HEIGHT=140 minus
@@ -214,7 +214,14 @@ export default function EditorPanel({
       let caretCharX = 0;
 
       let lineY = TOP_PADDING;
-      const paragraphs = text.split("\n");
+      // Nothing typed yet — compose the same specimen pangram the
+      // Marketplace preview uses instead of a plain gray hint, so the
+      // canvas shows the font actually working the instant a glyph or two
+      // is tagged. caretIndex still comes from the real (empty) textarea,
+      // so the caret lands at the very start of this preview, signaling
+      // "type to replace it" rather than looking like already-typed text.
+      const displayText = text || SAMPLE_TEXT;
+      const paragraphs = displayText.split("\n");
       for (const paragraph of paragraphs) {
         const layout = layoutText(paragraph, glyphs, strokes, metrics, useLigatures);
         const wrappedLines = wrapEntries(layout.entries, maxLineWidth);
@@ -316,16 +323,6 @@ export default function EditorPanel({
         ctx!.restore();
       }
 
-      // The hidden <textarea>'s own placeholder never renders (it's fully
-      // transparent), so draw one directly — plain system font, not the
-      // handwritten glyphs, same as any other empty-state hint.
-      if (text === "") {
-        ctx!.save();
-        ctx!.font = "14px \"Public Sans\", system-ui, sans-serif";
-        ctx!.fillStyle = PLACEHOLDER_COLOR;
-        ctx!.fillText("Type using your tagged glyphs…", LEFT_MARGIN, TOP_PADDING - 8);
-        ctx!.restore();
-      }
     }
 
     draw();
