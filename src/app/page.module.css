@@ -859,6 +859,14 @@
   min-width: 200px;
 }
 
+.gridWrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 .grid {
   flex: 1;
   min-height: 0;
@@ -869,6 +877,19 @@
   background: var(--color-cappuccino);
   overflow: auto;
   padding: 40px;
+}
+
+.gridSetupOverlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* Unlike .introOverlay (Free Draw's peek-through card), this one dims the
+     grid underneath — a hard gate, not an optional tip, so it should read
+     as genuinely blocking rather than just floating on top. */
+  background: rgba(31, 25, 52, 0.55);
+  z-index: 6;
 }
 
 .gridCell {

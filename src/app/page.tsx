@@ -864,6 +864,24 @@ export default function Home() {
     window.localStorage.setItem("fontane.seenFreeDrawIntro.v1", "true");
   }
 
+  // Unlike freeDrawIntroDismissed, deliberately NOT a permanent localStorage
+  // flag — a hard gate, not a one-time tip. Session-only: dismissing it lets
+  // you draw for the rest of this session, but an empty project (glyphs.length
+  // === 0) shows it again on the next load. Once any glyph exists, the
+  // project is no longer "empty" and this never shows again regardless —
+  // same idea as choosing an encoding before a new font file in Glyphs.
+  const [gridSetupDismissed, setGridSetupDismissed] = useState(false);
+  // The gate's own condition reads `glyphs`, which is loaded from
+  // localStorage — empty on the server, but already populated by the time
+  // the client's first render runs, so gating on glyphs.length directly
+  // would render a whole extra subtree server vs. client and hard-fail
+  // hydration (unlike the width handle's style-only mismatch, this is a
+  // structural one that can't be patched up). Deferring to a flag that only
+  // flips true in an effect keeps the first client render identical to the
+  // server's, then reveals the gate a tick later if it's actually needed.
+  const [gridSetupGateReady, setGridSetupGateReady] = useState(false);
+  useEffect(() => setGridSetupGateReady(true), []);
+
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const selectedIdsRef = useRef<Set<string>>(new Set());
 
@@ -2816,74 +2834,105 @@ export default function Home() {
       </div>
 
       {topMode === "draw" && drawStyle === "grid" && (
-        <div className={styles.grid}>
-          {gridSlots.map((slot) => {
-            const { name, kind } = slot;
-            const cellKey = `${kind}:${name}`;
-            const glyph = glyphs.find((g) => g.kind === kind && g.name === name);
-            const glyphStrokes = glyph
-              ? glyph.strokeIds
-                  .map((id) => completedRef.current.find((s) => s.id === id))
-                  .filter((s): s is Stroke => Boolean(s))
-              : [];
-            const needsFit = glyph && !(glyph.cellWidth && glyph.cellHeight);
-            const cellHeightPx = cellSize * CELL_ASPECT_RATIO;
-            // A glyph's own widthRatio (dragged per-cell — see the width
-            // handle in GridCell) overrides the global Width slider just
-            // for this cell; everything else still follows cellWidthRatio.
-            const effectiveWidthPx = (glyph?.widthRatio ?? cellWidthRatio) * cellSize;
-            // The canvas's own measured size (once GridCell has reported
-            // in) — not the nominal effectiveWidthPx/cellHeightPx, which the
-            // label bar underneath already eats a few px of. Using the
-            // nominal value here made a freshly-drawn stroke's anchor not
-            // quite match what fromAnchorSpace later rescales against, so it
-            // visibly jumped a few pixels the instant the stroke committed.
-            const liveWidth = cellDims[cellKey]?.width ?? effectiveWidthPx;
-            const liveHeight = cellDims[cellKey]?.height ?? cellHeightPx;
-            // The geometric scale this fit/rescale applies to point
-            // positions has to also apply to stroke width — otherwise a
-            // Free-tagged glyph (always a dramatic scale-down, from a
-            // large Free-canvas bbox to a small cell) renders with its
-            // original Free-canvas ink weight, wildly too thick for the
-            // shrunk letterforms.
-            const fitScale = needsFit
-              ? fitStrokesToCell(glyphStrokes, name, liveWidth, liveHeight, metrics)
-              : {
-                  points: glyphStrokes.map((s) =>
-                    fromAnchorSpace(s.points, glyph?.cellWidth, glyph?.cellHeight, liveWidth, liveHeight, keepProportions)
-                  ),
-                  scale: anchorSpaceWidthScale(glyph?.cellWidth, glyph?.cellHeight, liveWidth, liveHeight, keepProportions),
-                };
-            const fittedPoints = fitScale.points;
-            const cellStrokes = glyphStrokes.map((s, i) => ({
-              id: s.id,
-              points: fittedPoints[i],
-              widthScale: (s.widthScale ?? 1) * fitScale.scale,
-            }));
-            return (
-              <GridCell
-                key={cellKey}
-                label={name}
-                strokes={cellStrokes}
-                tool={(FREE_ONLY_TOOLS.has(drawTool) ? "pen" : drawTool) as CellTool}
-                onErase={(ids) => deleteStrokes(ids)}
-                onStrokesChange={(updates) => handleGridStrokesChange(slot, updates, liveWidth, liveHeight)}
-                strokeOptions={optionsFor(settings)}
-                onStrokeComplete={(stroke, reportedWidth, reportedHeight, durationMs) =>
-                  handleGridStroke(slot, stroke, reportedWidth, reportedHeight, durationMs)
-                }
-                metrics={metrics}
-                leftBearing={glyph?.leftBearing}
-                rightBearing={glyph?.rightBearing}
-                onBearingsChange={(left, right) => handleBearingsChange(slot, left, right)}
-                onResize={(width, height) => handleCellResize(cellKey, width, height)}
-                widthPx={effectiveWidthPx}
-                heightPx={cellHeightPx}
-                onWidthCommit={glyph ? (newWidthPx) => handleGlyphWidthChange(slot, newWidthPx) : undefined}
-                onWidthReset={() => handleGlyphWidthReset(slot)}
-              />
-            );
-          })}
+        <div className={styles.gridWrap}>
+          <div className={styles.grid}>
+            {gridSlots.map((slot) => {
+              const { name, kind } = slot;
+              const cellKey = `${kind}:${name}`;
+              const glyph = glyphs.find((g) => g.kind === kind && g.name === name);
+              const glyphStrokes = glyph
+                ? glyph.strokeIds
+                    .map((id) => completedRef.current.find((s) => s.id === id))
+                    .filter((s): s is Stroke => Boolean(s))
+                : [];
+              const needsFit = glyph && !(glyph.cellWidth && glyph.cellHeight);
+              const cellHeightPx = cellSize * CELL_ASPECT_RATIO;
+              // A glyph's own widthRatio (dragged per-cell — see the width
+              // handle in GridCell) overrides the global Width slider just
+              // for this cell; everything else still follows cellWidthRatio.
+              const effectiveWidthPx = (glyph?.widthRatio ?? cellWidthRatio) * cellSize;
+              // The canvas's own measured size (once GridCell has reported
+              // in) — not the nominal effectiveWidthPx/cellHeightPx, which the
+              // label bar underneath already eats a few px of. Using the
+              // nominal value here made a freshly-drawn stroke's anchor not
+              // quite match what fromAnchorSpace later rescales against, so it
+              // visibly jumped a few pixels the instant the stroke committed.
+              const liveWidth = cellDims[cellKey]?.width ?? effectiveWidthPx;
+              const liveHeight = cellDims[cellKey]?.height ?? cellHeightPx;
+              // The geometric scale this fit/rescale applies to point
+              // positions has to also apply to stroke width — otherwise a
+              // Free-tagged glyph (always a dramatic scale-down, from a
+              // large Free-canvas bbox to a small cell) renders with its
+              // original Free-canvas ink weight, wildly too thick for the
+              // shrunk letterforms.
+              const fitScale = needsFit
+                ? fitStrokesToCell(glyphStrokes, name, liveWidth, liveHeight, metrics)
+                : {
+                    points: glyphStrokes.map((s) =>
+                      fromAnchorSpace(s.points, glyph?.cellWidth, glyph?.cellHeight, liveWidth, liveHeight, keepProportions)
+                    ),
+                    scale: anchorSpaceWidthScale(glyph?.cellWidth, glyph?.cellHeight, liveWidth, liveHeight, keepProportions),
+                  };
+              const fittedPoints = fitScale.points;
+              const cellStrokes = glyphStrokes.map((s, i) => ({
+                id: s.id,
+                points: fittedPoints[i],
+                widthScale: (s.widthScale ?? 1) * fitScale.scale,
+              }));
+              return (
+                <GridCell
+                  key={cellKey}
+                  label={name}
+                  strokes={cellStrokes}
+                  tool={(FREE_ONLY_TOOLS.has(drawTool) ? "pen" : drawTool) as CellTool}
+                  onErase={(ids) => deleteStrokes(ids)}
+                  onStrokesChange={(updates) => handleGridStrokesChange(slot, updates, liveWidth, liveHeight)}
+                  strokeOptions={optionsFor(settings)}
+                  onStrokeComplete={(stroke, reportedWidth, reportedHeight, durationMs) =>
+                    handleGridStroke(slot, stroke, reportedWidth, reportedHeight, durationMs)
+                  }
+                  metrics={metrics}
+                  leftBearing={glyph?.leftBearing}
+                  rightBearing={glyph?.rightBearing}
+                  onBearingsChange={(left, right) => handleBearingsChange(slot, left, right)}
+                  onResize={(width, height) => handleCellResize(cellKey, width, height)}
+                  widthPx={effectiveWidthPx}
+                  heightPx={cellHeightPx}
+                  onWidthCommit={glyph ? (newWidthPx) => handleGlyphWidthChange(slot, newWidthPx) : undefined}
+                  onWidthReset={() => handleGlyphWidthReset(slot)}
+                />
+              );
+            })}
+          </div>
+          {gridSetupGateReady && glyphs.length === 0 && !gridSetupDismissed && (
+            <div className={styles.gridSetupOverlay}>
+              <div className={styles.introCard}>
+                <h2 className={styles.introTitle}>Choose Your Character Sets</h2>
+                <p className={styles.introText}>
+                  Before you start drawing, pick which character sets belong in this Grid. You can still add or
+                  remove sets later from the Character Sets menu — this just decides what you see first.
+                </p>
+                <div className={styles.charsetToggle} style={{ marginBottom: 24 }}>
+                  {CHARACTER_SETS.map((set) => (
+                    <label key={set.id} className={styles.charsetOption}>
+                      <input type="checkbox" checked={activeSetIds.has(set.id)} onChange={() => toggleCharacterSet(set.id)} />
+                      {set.label}
+                    </label>
+                  ))}
+                </div>
+                <div className={styles.introActions}>
+                  <button
+                    type="button"
+                    className={styles.clearBtn}
+                    disabled={activeSetIds.size === 0}
+                    onClick={() => setGridSetupDismissed(true)}
+                  >
+                    Start
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
