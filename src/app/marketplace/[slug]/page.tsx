@@ -58,7 +58,7 @@ export default async function FontOverviewPage({
         justifyContent: "center",
       }}
     >
-      <PageviewTracker />
+      <PageviewTracker page="marketplace-listing" />
       <div style={{ maxWidth: 720, width: "100%" }}>
         <MarketplaceNav />
         <h1 style={{ fontSize: 32, margin: "12px 0 4px" }}>{font.display_name}</h1>

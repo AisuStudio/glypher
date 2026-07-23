@@ -7,14 +7,32 @@ import styles from "./page.module.css";
 import { clearStrokes, loadStrokes, saveStrokes, type Stroke, type StrokePoint } from "@/lib/strokes";
 import { loadGlyphs, saveGlyphs, unicodeFor, type Glyph, type GlyphKind } from "@/lib/glyphs";
 import { anyPointInPolygon, pointInPolygon } from "@/lib/geometry";
-import { outlineToPath, pathToSvgD, skeletonToPath, unionOutlines, type PathCommand } from "@/lib/contour";
+import {
+  outlineToPath,
+  pathToSvgD,
+  skeletonToPath,
+  unionOutlines,
+  subtractOutlines,
+  flattenVectorShape,
+  cubicPoint,
+  type PathCommand,
+} from "@/lib/contour";
+import {
+  loadVectorShapes,
+  saveVectorShapes,
+  clearVectorShapes,
+  type VectorShape,
+  type BezierAnchor,
+  type BezierPoint,
+} from "@/lib/vectorShapes";
 import { simplifyStrokeIndices } from "@/lib/simplify";
 import { buildFont, downloadFont } from "@/lib/exportFont";
 import { downloadSkeletonSvg } from "@/lib/exportSkeleton";
 import { saveFile } from "@/lib/saveFile";
 import { loadMetrics, saveMetrics, DEFAULT_METRICS, type Metrics } from "@/lib/metrics";
 import { loadSettings, saveSettings, DEFAULT_SETTINGS, type StrokeSettings } from "@/lib/settings";
-import { downloadProjectFile, parseProjectFile, applyProjectFile } from "@/lib/projectFile";
+import { downloadProjectFile, parseProjectFile, applyProjectFile, buildProjectFile } from "@/lib/projectFile";
+import { getStoredCode, setStoredCode, clearStoredCode } from "@/lib/cloudCode";
 import { layoutText } from "@/lib/layoutText";
 import { SAMPLE_TEXT } from "@/lib/marketplace";
 import {
@@ -31,6 +49,7 @@ import {
   RotateCw,
   Scaling,
   Hand,
+  PenTool,
 } from "lucide-react";
 import GridCell, { DEFAULT_LEFT_BEARING, DEFAULT_RIGHT_BEARING, type CellTool } from "./GridCell";
 import BetaBadge from "./BetaBadge";
@@ -38,7 +57,7 @@ import { CHARACTER_SETS, DEFAULT_CHARACTER_SET_IDS } from "@/lib/charsets";
 import AnimatePanel from "./AnimatePanel";
 import EditorPanel, { DEFAULT_EDITOR_FONT_SIZE_PT } from "./EditorPanel";
 import { DEFAULT_PRESET_ID, type AnimationPresetId } from "@/lib/animationPresets";
-import { trackPageview, trackDuration, trackExport } from "@/lib/analytics";
+import { trackPageview, trackDuration, trackExport, trackToolUse } from "@/lib/analytics";
 import {
   getAuthorId,
   getDraftId,
@@ -62,11 +81,11 @@ type DrawStyle = "free" | "grid" | "editor";
 // Assign keeps the exact same gesture plus its own tag-form panel, so the
 // two share the lasso code paths (see LASSO_TOOLS) rather than duplicating
 // them.
-type DrawTool = "pen" | "brush" | "eraser" | "nudge" | "anchor" | "assign" | "select" | "move" | "rotate" | "scale" | "pan";
+type DrawTool = "pen" | "brush" | "eraser" | "nudge" | "anchor" | "vector" | "assign" | "select" | "move" | "rotate" | "scale" | "pan";
 // The 5 menu-bar dropdowns — "charset" (the Grid context bar's Character
 // sets picker) is a separate, click-only dropdown, not part of the hover
 // group below.
-type MenuKey = "glypher" | "file" | "edit" | "view" | "tools" | "marketplace" | "charset";
+type MenuKey = "glypher" | "file" | "edit" | "view" | "tools" | "marketplace" | "charset" | "cloud";
 // One entry per Grid cell — the fixed character sets contribute one slot
 // per character (kind always "base"), and a user can append arbitrary extra
 // slots (ligatures, alternates, or a one-off base symbol outside any set) via
@@ -95,7 +114,7 @@ const TRANSFORM_TOOLS = new Set<DrawTool>(["move", "rotate", "scale"]);
 // cell has nothing to pan around), and Anchor (single-anchor select/insert/
 // delete — Grid cells are small and already busy with bearing handles) stay
 // Free-exclusive.
-const FREE_ONLY_TOOLS = new Set<DrawTool>(["assign", "pan", "anchor"]);
+const FREE_ONLY_TOOLS = new Set<DrawTool>(["assign", "pan", "anchor", "vector"]);
 
 // Single source of truth for the sidebar's TOOLS section, the menu bar's
 // Tools dropdown, AND the keyboard shortcuts below — one place to add a
@@ -108,6 +127,7 @@ const TOOL_DEFS: ToolDef[] = [
   { value: "select", label: "Select", icon: Lasso, shortcut: "l" },
   { value: "nudge", label: "Nudge", icon: SplinePointer, shortcut: "n" },
   { value: "anchor", label: "Anchor", icon: MousePointer2, shortcut: "p" },
+  { value: "vector", label: "Vector", icon: PenTool, shortcut: "v" },
   { value: "move", label: "Move", icon: Move, shortcut: "m" },
   { value: "rotate", label: "Rotate", icon: RotateCw, shortcut: "r" },
   { value: "scale", label: "Scale", icon: Scaling, shortcut: "s" },
@@ -328,6 +348,23 @@ function applyPath(ctx: CanvasRenderingContext2D, commands: PathCommand[]) {
   }
 }
 
+// Vector-tool shapes are true cubic Beziers, so this draws them with canvas's
+// own bezierCurveTo directly — no flattening/approximation needed on screen
+// (that only happens at compile time, see flattenVectorShape in contour.ts).
+function applyVectorShapePath(ctx: CanvasRenderingContext2D, shape: VectorShape) {
+  if (shape.anchors.length < 2) return;
+  ctx.moveTo(shape.anchors[0].x, shape.anchors[0].y);
+  const segmentCount = shape.closed ? shape.anchors.length : shape.anchors.length - 1;
+  for (let i = 0; i < segmentCount; i++) {
+    const p0 = shape.anchors[i];
+    const p1 = shape.anchors[(i + 1) % shape.anchors.length];
+    const c1 = p0.handleOut ?? p0;
+    const c2 = p1.handleIn ?? p1;
+    ctx.bezierCurveTo(c1.x, c1.y, c2.x, c2.y, p1.x, p1.y);
+  }
+  if (shape.closed) ctx.closePath();
+}
+
 function fillOutline(ctx: CanvasRenderingContext2D, outline: [number, number][], color: string) {
   if (outline.length < 3) return;
   // Shares outlineToPath with the SVG export (src/lib/contour.ts) so the canvas
@@ -342,33 +379,60 @@ function fillOutline(ctx: CanvasRenderingContext2D, outline: [number, number][],
 // path data, one per stroke), plus the identity/relationship fields from Phase 2.
 // This is what a later export step (SVG + .fea, or a direct fontTools compile)
 // would consume — nothing here writes anywhere, it's just compiled on demand.
-function compileDocument(glyphs: Glyph[], strokes: Stroke[], settings: StrokeSettings, metrics: Metrics) {
+function compileDocument(
+  glyphs: Glyph[],
+  strokes: Stroke[],
+  vectorShapes: VectorShape[],
+  settings: StrokeSettings,
+  metrics: Metrics
+) {
   const byId = new Map(strokes.map((s) => [s.id, s]));
+  const shapesById = new Map(vectorShapes.map((s) => [s.id, s]));
   return {
     version: 1,
     settings: optionsFor(settings),
     metrics,
-    glyphs: glyphs.map((g) => ({
-      name: g.name,
-      kind: g.kind,
-      unicode: g.unicode,
-      components: g.components,
-      alternateOf: g.alternateOf,
-      leftBearing: g.leftBearing,
-      rightBearing: g.rightBearing,
-      cellWidth: g.cellWidth,
-      cellHeight: g.cellHeight,
+    glyphs: glyphs.map((g) => {
       // Strokes are drawn independently and can overlap (e.g. the crossbar
       // and stem of a "t") — union their outlines into clean, non-
       // overlapping contours before exporting, so overlapping/self-
       // intersecting paths don't glitch in font rasterizers downstream.
-      contours: unionOutlines(
+      const strokesUnion = unionOutlines(
         g.strokeIds
           .map((id) => byId.get(id))
           .filter((s): s is Stroke => Boolean(s))
           .map((s) => outlineFor(s.points, effectiveSettingsFor(s, settings)))
-      ).map((ring) => pathToSvgD(outlineToPath(ring))),
-    })),
+      );
+      // Vector-tool shapes (only closed ones are real geometry) default to
+      // punching a hole in the glyph's strokes — see contour.ts's
+      // subtractOutlines. A glyph with vector shapes but no strokes has
+      // nothing to subtract FROM, so those union together as normal fill
+      // instead of silently compiling to nothing.
+      const vectorOutlines = (g.vectorShapeIds ?? [])
+        .map((id) => shapesById.get(id))
+        .filter((s): s is VectorShape => Boolean(s && s.closed))
+        .map((s) => flattenVectorShape(s));
+      let rings: [number, number][][];
+      if (vectorOutlines.length === 0) {
+        rings = strokesUnion;
+      } else if (g.strokeIds.length === 0) {
+        rings = unionOutlines(vectorOutlines);
+      } else {
+        rings = subtractOutlines(strokesUnion, unionOutlines(vectorOutlines));
+      }
+      return {
+        name: g.name,
+        kind: g.kind,
+        unicode: g.unicode,
+        components: g.components,
+        alternateOf: g.alternateOf,
+        leftBearing: g.leftBearing,
+        rightBearing: g.rightBearing,
+        cellWidth: g.cellWidth,
+        cellHeight: g.cellHeight,
+        contours: rings.map((ring) => pathToSvgD(outlineToPath(ring))),
+      };
+    }),
   };
 }
 
@@ -511,6 +575,29 @@ export default function Home() {
   const [shareCopyState, setShareCopyState] = useState<"idle" | "copied" | "failed">("idle");
   const [shareCopiedSlug, setShareCopiedSlug] = useState<string | null>(null);
 
+  // Cloud project save/load — gated by a single shared betacode (checked
+  // server-side in api/projects/*, see src/lib/betaCode.ts) rather than real
+  // per-user accounts, see the plan this was built from. cloudCode/
+  // currentCloudProject both persist to localStorage (lazy initializers)
+  // since a Load reloads the page, same as the local FFF Import flow.
+  const [cloudCode, setCloudCode] = useState<string | null>(() => getStoredCode());
+  const [currentCloudProject, setCurrentCloudProject] = useState<{ id: number; name: string } | null>(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      const raw = window.localStorage.getItem("fontane.currentCloudProject.v1");
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  });
+  const [cloudModal, setCloudModal] = useState<"unlock" | "save" | "projects" | null>(null);
+  const [cloudCodeInput, setCloudCodeInput] = useState("");
+  const [cloudSaveAsName, setCloudSaveAsName] = useState("");
+  const [cloudBusy, setCloudBusy] = useState(false);
+  const [cloudError, setCloudError] = useState<string | null>(null);
+  const [cloudProjects, setCloudProjects] = useState<{ id: number; name: string; updated_at: string }[]>([]);
+  const [cloudProjectsLoading, setCloudProjectsLoading] = useState(false);
+
   // Debounced live availability check while typing a name in the Publish
   // modal — UX feedback only, api/fonts/publish re-checks server-side before
   // actually writing anything (see that route's comment).
@@ -560,6 +647,19 @@ export default function Home() {
     }, 300);
     return () => clearTimeout(handle);
   }, [shareQuery, marketplaceModal]);
+
+  // Fetches the cloud project list whenever "My Cloud Projects" opens — not
+  // debounced (no text input driving it), just a one-shot load per open.
+  useEffect(() => {
+    if (cloudModal !== "projects" || !cloudCode) return;
+    setCloudProjectsLoading(true);
+    fetch("/api/projects", { headers: { "x-fontane-code": cloudCode } })
+      .then((r) => r.json())
+      .then((data) => setCloudProjects(data.projects ?? []))
+      .catch(() => setCloudProjects([]))
+      .finally(() => setCloudProjectsLoading(false));
+  }, [cloudModal, cloudCode]);
+
   const [activeSetIds, setActiveSetIds] = useState<Set<string>>(new Set(DEFAULT_CHARACTER_SET_IDS));
   // Extra Grid cells beyond the fixed character sets — this is the only way
   // to get a ligature/alternate slot into Grid view at all (Free mode's
@@ -751,6 +851,28 @@ export default function Home() {
   // whereas a raw index captured before that resample would go stale.
   const selectedAnchorRef = useRef<{ strokeId: string; rank: number } | null>(null);
 
+  // Vector tool: true Bezier shapes (src/lib/vectorShapes.ts), a completely
+  // separate content type from Stroke. editingShapeIdRef is either a
+  // still-open path being drawn for the first time (shape.closed === false)
+  // or a previously-closed shape reopened for point edit — see
+  // handleVectorPointerDown. draggingVectorAnchorRef/draggingHandleRef mirror
+  // the Nudge tool's draggingAnchorRef: mutate + redraw() on every move,
+  // persist via saveVectorShapes() only on pointerup.
+  const vectorShapesRef = useRef<VectorShape[]>([]);
+  const editingShapeIdRef = useRef<string | null>(null);
+  // Set (with a drag-start position) when a click lands on an existing
+  // anchor — moving beyond ANCHOR_HIT_PX before pointerup repositions it
+  // instead of deleting it, same disambiguation as placingNewAnchorRef below.
+  const draggingVectorAnchorRef = useRef<number | null>(null);
+  const draggingHandleRef = useRef<{ anchorIndex: number; which: "handleIn" | "handleOut" } | null>(null);
+  // True only while dragging the handle of an anchor just placed by this
+  // same click (see handleVectorPointerDown) — that drag sets both handles
+  // symmetrically (a smooth curve point) and collapses back to a plain
+  // corner (no handles) if released without moving. Dragging an EXISTING
+  // handle later (this flag false) adjusts just that one side.
+  const placingNewAnchorRef = useRef(false);
+  const vectorDragStartRef = useRef<{ x: number; y: number } | null>(null);
+
   // Move/Rotate/Scale: a snapshot of every selected stroke's points taken at
   // gesture start, plus the pivot (bbox center) and start pointer position —
   // every pointermove recomputes from this frozen snapshot rather than the
@@ -825,6 +947,7 @@ export default function Home() {
     ...extraGridSlots,
   ];
   const taggedIdsRef = useRef<Set<string>>(new Set());
+  const taggedIdsVectorRef = useRef<Set<string>>(new Set());
   // Strokes belonging to a Grid-native glyph (cellWidth/cellHeight set) live in
   // Grid-cell-local coordinate space, not Free-canvas space — Free's redraw()
   // must skip them or they paint as a stray blob near the Free canvas origin.
@@ -949,6 +1072,21 @@ export default function Home() {
                 : COLOR_DEFAULT;
         fillOutline(ctx, outlines[i], color);
       }
+      // Finished (closed) Vector-tool shapes — punched out of whatever's
+      // already on the canvas via destination-out, a cheap live approximation
+      // of the real polygon-difference compileDocument() runs at compile
+      // time (see contour.ts's subtractOutlines). An open, still-being-drawn
+      // path has no fill yet, same as any other pen tool.
+      for (const shape of vectorShapesRef.current) {
+        if (!shape.closed) continue;
+        ctx.save();
+        ctx.beginPath();
+        applyVectorShapePath(ctx, shape);
+        ctx.globalCompositeOperation = "destination-out";
+        ctx.fillStyle = "black";
+        ctx.fill();
+        ctx.restore();
+      }
       if (!LASSO_TOOLS.has(drawToolRef.current) && currentPointsRef.current.length > 0) {
         fillOutline(ctx, outlineFor(currentPointsRef.current, settingsRef.current), COLOR_DEFAULT);
       }
@@ -1013,6 +1151,61 @@ export default function Home() {
           });
         }
       }
+      if (drawToolRef.current === "vector") {
+        const editingShape = vectorShapesRef.current.find((s) => s.id === editingShapeIdRef.current);
+        // A finished (closed) shape not currently being edited still gets its
+        // outline stroked (not just the destination-out fill above) so it
+        // reads as a distinct, clickable object rather than only a hole.
+        for (const shape of vectorShapesRef.current) {
+          if (shape.id === editingShapeIdRef.current) continue;
+          ctx.save();
+          ctx.beginPath();
+          applyVectorShapePath(ctx, shape);
+          ctx.strokeStyle = taggedIdsVectorRef.current.has(shape.id) ? COLOR_TAGGED : SKELETON_GUIDE_COLOR;
+          ctx.lineWidth = 1;
+          ctx.stroke();
+          ctx.restore();
+        }
+        if (editingShape) {
+          ctx.save();
+          ctx.beginPath();
+          applyVectorShapePath(ctx, editingShape);
+          ctx.strokeStyle = COLOR_SELECTED;
+          ctx.lineWidth = 1;
+          ctx.stroke();
+          ctx.restore();
+
+          editingShape.anchors.forEach((a) => {
+            // Handle affordances: thin connecting line + small square handle
+            // ends, standard pen-tool visual — drawn under the anchor dot so
+            // the anchor itself stays the primary, larger target.
+            for (const handle of [a.handleIn, a.handleOut]) {
+              if (!handle) continue;
+              ctx.save();
+              ctx.beginPath();
+              ctx.moveTo(a.x, a.y);
+              ctx.lineTo(handle.x, handle.y);
+              ctx.strokeStyle = ANCHOR_RING_COLOR;
+              ctx.lineWidth = 1;
+              ctx.stroke();
+              ctx.restore();
+              ctx.fillStyle = ANCHOR_COLOR;
+              ctx.fillRect(handle.x - 3, handle.y - 3, 6, 6);
+            }
+          });
+          editingShape.anchors.forEach((a) => {
+            ctx.beginPath();
+            ctx.arc(a.x, a.y, 4, 0, Math.PI * 2);
+            ctx.fillStyle = ANCHOR_COLOR;
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(a.x, a.y, 4, 0, Math.PI * 2);
+            ctx.strokeStyle = ANCHOR_RING_COLOR;
+            ctx.lineWidth = 0.5;
+            ctx.stroke();
+          });
+        }
+      }
       ctx.restore();
     }
     redrawRef.current = redraw;
@@ -1040,7 +1233,9 @@ export default function Home() {
     completedRef.current = loadStrokes();
     outlinesRef.current = completedRef.current.map((s) => outlineFor(s.points, effectiveSettingsFor(s, settingsRef.current)));
     setStrokeCount(completedRef.current.length);
+    vectorShapesRef.current = loadVectorShapes();
     taggedIdsRef.current = new Set(glyphs.flatMap((g) => g.strokeIds));
+    taggedIdsVectorRef.current = new Set(glyphs.flatMap((g) => g.vectorShapeIds ?? []));
     gridNativeStrokeIdsRef.current = new Set(
       glyphs.filter((g) => g.cellWidth && g.cellHeight).flatMap((g) => g.strokeIds)
     );
@@ -1063,7 +1258,7 @@ export default function Home() {
       const p = pointFromEvent(e);
       setHud({ pointerType: e.pointerType, pressure: e.pressure, x: Math.round(p[0]), y: Math.round(p[1]) });
       if (topModeRef.current === "draw" && drawToolRef.current === "eraser") {
-        eraseAt(p[0], p[1]);
+        if (eraseAt(p[0], p[1])) trackToolUse("eraser");
         redraw();
         return;
       }
@@ -1074,6 +1269,11 @@ export default function Home() {
       }
       if (topModeRef.current === "draw" && drawToolRef.current === "anchor") {
         handleAnchorToolPointerDown(p[0], p[1]);
+        redraw();
+        return;
+      }
+      if (topModeRef.current === "draw" && drawToolRef.current === "vector") {
+        handleVectorPointerDown(p[0], p[1]);
         redraw();
         return;
       }
@@ -1147,6 +1347,14 @@ export default function Home() {
         canvas!.style.cursor = editingStrokeIdRef.current ? "grab" : "pointer";
         return;
       }
+      if (topModeRef.current === "draw" && drawToolRef.current === "vector") {
+        if (draggingHandleRef.current || draggingVectorAnchorRef.current !== null) {
+          handleVectorPointerMove(p[0], p[1]);
+          return;
+        }
+        canvas!.style.cursor = editingShapeIdRef.current ? "crosshair" : "pointer";
+        return;
+      }
       if (topModeRef.current === "draw" && TRANSFORM_TOOLS.has(drawToolRef.current)) {
         if (transformStartRef.current) {
           applyTransform(p[0], p[1]);
@@ -1184,7 +1392,15 @@ export default function Home() {
         if (draggingAnchorRef.current !== null) {
           draggingAnchorRef.current = null;
           saveStrokes(completedRef.current);
+          trackToolUse("nudge");
         }
+        canvas!.releasePointerCapture(e.pointerId);
+        redraw();
+        return;
+      }
+      if (topModeRef.current === "draw" && drawToolRef.current === "vector") {
+        const p = pointFromEvent(e);
+        handleVectorPointerUp(p[0], p[1]);
         canvas!.releasePointerCapture(e.pointerId);
         redraw();
         return;
@@ -1209,6 +1425,7 @@ export default function Home() {
           }
           transformStartRef.current = null;
           saveStrokes(completedRef.current);
+          trackToolUse(t.mode);
         }
         canvas!.releasePointerCapture(e.pointerId);
         redraw();
@@ -1222,10 +1439,17 @@ export default function Home() {
       }
       if (LASSO_TOOLS.has(drawToolRef.current)) {
         const polygon = lassoRef.current;
-        const matched = completedRef.current
+        const matchedStrokes = completedRef.current
           .filter((s) => anyPointInPolygon(s.points.map((p) => [p[0], p[1]]) as [number, number][], polygon))
           .map((s) => s.id);
-        setSelectedIds(matched);
+        // Vector shapes join the same lasso match (mainly for Assign — see
+        // handleAssign, which splits selectedIds back into strokeIds vs
+        // vectorShapeIds) — hit-tested by anchor point, same as strokes are
+        // hit-tested by their raw points, not the filled outline.
+        const matchedShapes = vectorShapesRef.current
+          .filter((s) => anyPointInPolygon(s.anchors.map((a) => [a.x, a.y] as [number, number]), polygon))
+          .map((s) => s.id);
+        setSelectedIds([...matchedStrokes, ...matchedShapes]);
         lassoRef.current = [];
       } else {
         if (drawingRef.current && currentPointsRef.current.length > 1) {
@@ -1248,6 +1472,7 @@ export default function Home() {
             tool: stroke.kind === "brush" ? "brush" : "pen",
             ...summarizeStroke(stroke.points, strokeStartTimeRef.current),
           });
+          trackToolUse(stroke.kind === "brush" ? "brush" : "pen");
         }
         currentPointsRef.current = [];
       }
@@ -1303,6 +1528,7 @@ export default function Home() {
     lassoRef.current = [];
     setSelectedIds([]);
     exitNudgeEditing();
+    exitVectorEditing();
     redrawRef.current();
   }, [topMode]);
 
@@ -1313,6 +1539,7 @@ export default function Home() {
     // handleAnchorInsertOrDelete — have something to operate on); switching
     // to anything else exits it.
     if (drawTool !== "nudge" && drawTool !== "anchor" && drawTool !== "pen") exitNudgeEditing();
+    if (drawTool !== "vector") exitVectorEditing();
     if (drawTool !== "move" && drawTool !== "rotate" && drawTool !== "scale") transformStartRef.current = null;
     if (drawTool !== "pan") panDragStartRef.current = null;
     // Switching tools mid-gesture shouldn't leave a stale in-progress pen
@@ -1328,6 +1555,7 @@ export default function Home() {
 
   useEffect(() => {
     exitNudgeEditing();
+    exitVectorEditing();
     panOffsetRef.current = { x: 0, y: 0 };
     // Leaving Free strands drawTool on a value ("nudge"/"assign"/"select"/
     // "move"/"rotate"/"scale"/"pan") whose button no longer exists in the
@@ -1348,6 +1576,18 @@ export default function Home() {
     resampledRef.current = false;
     draggingAnchorRef.current = null;
     selectedAnchorRef.current = null;
+  }
+
+  // Same idea as exitNudgeEditing, for the Vector tool's editing session. An
+  // in-progress OPEN path that never got closed is left as-is (not
+  // discarded) — switching tools mid-draw shouldn't silently lose points;
+  // reselecting Vector and clicking it again resumes editing it.
+  function exitVectorEditing() {
+    editingShapeIdRef.current = null;
+    draggingVectorAnchorRef.current = null;
+    draggingHandleRef.current = null;
+    placingNewAnchorRef.current = false;
+    vectorDragStartRef.current = null;
   }
 
   useEffect(() => {
@@ -1405,6 +1645,7 @@ export default function Home() {
 
   useEffect(() => {
     taggedIdsRef.current = new Set(glyphs.flatMap((g) => g.strokeIds));
+    taggedIdsVectorRef.current = new Set(glyphs.flatMap((g) => g.vectorShapeIds ?? []));
     gridNativeStrokeIdsRef.current = new Set(
       glyphs.filter((g) => g.cellWidth && g.cellHeight).flatMap((g) => g.strokeIds)
     );
@@ -1417,7 +1658,7 @@ export default function Home() {
   // being open) — File > Export JSON/OTF read exportJson/exportDoc directly,
   // so they need to stay current regardless of which view the user is on.
   useEffect(() => {
-    const doc = compileDocument(glyphs, completedRef.current, settings, metrics);
+    const doc = compileDocument(glyphs, completedRef.current, vectorShapesRef.current, settings, metrics);
     setExportJson(JSON.stringify(doc, null, 2));
     setExportDoc(doc);
   }, [glyphs, settings, metrics]);
@@ -1556,6 +1797,9 @@ export default function Home() {
     completedRef.current = [];
     outlinesRef.current = [];
     clearStrokes();
+    vectorShapesRef.current = [];
+    clearVectorShapes();
+    exitVectorEditing();
     setStrokeCount(0);
     setGlyphs([]);
     setSelectedIds([]);
@@ -1612,11 +1856,15 @@ export default function Home() {
   function handleAssign() {
     const name = nameInput.trim();
     if (!name || selectedIds.length === 0) return;
+    const vectorIdSet = new Set(vectorShapesRef.current.map((s) => s.id));
+    const strokeIds = selectedIds.filter((id) => !vectorIdSet.has(id));
+    const vectorShapeIds = selectedIds.filter((id) => vectorIdSet.has(id));
     const glyph: Glyph = {
       id: `${Date.now()}-${Math.round(Math.random() * 1e6)}`,
       name,
       kind: kindInput,
-      strokeIds: selectedIds,
+      strokeIds,
+      ...(vectorShapeIds.length > 0 ? { vectorShapeIds } : {}),
       createdAt: Date.now(),
       ...(kindInput === "base" ? { unicode: unicodeFor(name) } : {}),
       ...(kindInput === "ligature"
@@ -1629,6 +1877,7 @@ export default function Home() {
     setNameInput("");
     setComponentsInput("");
     setAlternateOfInput("");
+    trackToolUse("assign");
   }
 
   function handleAssignKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
@@ -1923,6 +2172,277 @@ export default function Home() {
     exitNudgeEditing();
   }
 
+  // --- Vector tool (true Bezier shapes, src/lib/vectorShapes.ts) ---
+  // Unlike the Stroke-anchor tools above, VectorShape anchors ARE the stored
+  // data — no simplify/resample indirection, so these hit-tests work
+  // directly against shape.anchors and return real indices, not ranks.
+
+  function vectorAnchorNear(shape: VectorShape, x: number, y: number): number | null {
+    for (let i = shape.anchors.length - 1; i >= 0; i--) {
+      const a = shape.anchors[i];
+      if (Math.hypot(x - a.x, y - a.y) <= ANCHOR_HIT_PX) return i;
+    }
+    return null;
+  }
+
+  function vectorHandleNear(
+    shape: VectorShape,
+    x: number,
+    y: number
+  ): { anchorIndex: number; which: "handleIn" | "handleOut" } | null {
+    for (let i = shape.anchors.length - 1; i >= 0; i--) {
+      const a = shape.anchors[i];
+      if (a.handleOut && Math.hypot(x - a.handleOut.x, y - a.handleOut.y) <= ANCHOR_HIT_PX) {
+        return { anchorIndex: i, which: "handleOut" };
+      }
+      if (a.handleIn && Math.hypot(x - a.handleIn.x, y - a.handleIn.y) <= ANCHOR_HIT_PX) {
+        return { anchorIndex: i, which: "handleIn" };
+      }
+    }
+    return null;
+  }
+
+  // Same idea as findInsertionRank for strokes, but hit-tests the true
+  // sampled curve (cubicPoint, same math flattenVectorShape uses at compile
+  // time) rather than a straight line between anchors — a click near a
+  // pronounced curve's midpoint should register even though it's far from
+  // the anchor-to-anchor chord. Returns the LEFT anchor index of the segment
+  // ("insert between i and i+1").
+  function vectorInsertionIndex(shape: VectorShape, x: number, y: number): number | null {
+    const segmentCount = shape.closed ? shape.anchors.length : shape.anchors.length - 1;
+    for (let i = 0; i < segmentCount; i++) {
+      const p0 = shape.anchors[i];
+      const p1 = shape.anchors[(i + 1) % shape.anchors.length];
+      const c1 = p0.handleOut ?? p0;
+      const c2 = p1.handleIn ?? p1;
+      let prev: [number, number] = [p0.x, p0.y];
+      for (let s = 1; s <= 24; s++) {
+        const pt = cubicPoint(p0, c1, c2, p1, s / 24);
+        const dx = pt[0] - prev[0];
+        const dy = pt[1] - prev[1];
+        const lenSq = dx * dx + dy * dy;
+        const t = lenSq === 0 ? 0 : Math.max(0, Math.min(1, ((x - prev[0]) * dx + (y - prev[1]) * dy) / lenSq));
+        const projX = prev[0] + t * dx;
+        const projY = prev[1] + t * dy;
+        if (Math.hypot(x - projX, y - projY) <= ANCHOR_HIT_PX) return i;
+        prev = pt;
+      }
+    }
+    return null;
+  }
+
+  function insertVectorAnchor(shapeId: string, afterIndex: number, x: number, y: number) {
+    const idx = vectorShapesRef.current.findIndex((s) => s.id === shapeId);
+    if (idx === -1) return;
+    const shape = vectorShapesRef.current[idx];
+    // A plain corner point — inserting mid-curve without guessing at
+    // handles keeps the result predictable; the user can drag it into a
+    // curve afterward like any other anchor.
+    const newAnchor: BezierAnchor = { x, y };
+    shape.anchors = [...shape.anchors.slice(0, afterIndex + 1), newAnchor, ...shape.anchors.slice(afterIndex + 1)];
+    saveVectorShapes(vectorShapesRef.current);
+  }
+
+  // Deletes the anchor at `index`. A shape left with fewer than 2 anchors
+  // can't be a shape anymore — dropped entirely, same convention as
+  // deleteAnchorAndSplit dropping sub-2-point strokes, including glyph
+  // bookkeeping (a glyph left referencing nothing is dropped too).
+  function deleteVectorAnchorAt(shapeId: string, index: number) {
+    const idx = vectorShapesRef.current.findIndex((s) => s.id === shapeId);
+    if (idx === -1) return;
+    const shape = vectorShapesRef.current[idx];
+    shape.anchors = shape.anchors.filter((_, i) => i !== index);
+    if (shape.anchors.length < 2) {
+      vectorShapesRef.current = vectorShapesRef.current.filter((s) => s.id !== shapeId);
+      setGlyphs((gs) =>
+        gs
+          .map((g) => (g.vectorShapeIds?.includes(shapeId) ? { ...g, vectorShapeIds: g.vectorShapeIds.filter((id) => id !== shapeId) } : g))
+          .filter((g) => g.strokeIds.length > 0 || (g.vectorShapeIds?.length ?? 0) > 0)
+      );
+      editingShapeIdRef.current = null;
+    }
+    saveVectorShapes(vectorShapesRef.current);
+  }
+
+  // Mirrors the Free-stroke provenance push (see onPointerUp above) but per
+  // anchor placed rather than per finished stroke — a vector shape has no
+  // pressure data, so pointCount is pinned to 1 and pressure fields to a
+  // neutral constant rather than adding a second summarizer.
+  function recordVectorProvenance() {
+    enqueueProvenanceEvent({
+      draftId: getDraftId(),
+      authorId: getAuthorId(),
+      clientStrokeId: `${Date.now()}-${Math.round(Math.random() * 1e6)}`,
+      context: "free",
+      tool: "vector",
+      ...summarizeStroke([[0, 0, 1]], Date.now()),
+    });
+    trackToolUse("vector");
+  }
+
+  // Click on an existing anchor deletes it UNLESS the click turns into a
+  // drag (moved past ANCHOR_HIT_PX before pointerup) — then it repositions
+  // instead. Click on the first anchor of the currently-open path closes it.
+  // Click on empty space while a path is open extends it (drag = curve
+  // point, plain click = corner). Click on a different existing shape's
+  // anchor/curve (or on empty space with nothing active) starts/switches the
+  // editing session onto it, exactly the Nudge/Anchor tools' own convention.
+  function handleVectorPointerDown(x: number, y: number) {
+    if (editingShapeIdRef.current) {
+      const idx = vectorShapesRef.current.findIndex((s) => s.id === editingShapeIdRef.current);
+      if (idx !== -1) {
+        const shape = vectorShapesRef.current[idx];
+
+        const handleHit = vectorHandleNear(shape, x, y);
+        if (handleHit) {
+          draggingHandleRef.current = handleHit;
+          return;
+        }
+
+        if (!shape.closed && shape.anchors.length >= 3) {
+          const first = shape.anchors[0];
+          if (Math.hypot(x - first.x, y - first.y) <= ANCHOR_HIT_PX) {
+            shape.closed = true;
+            saveVectorShapes(vectorShapesRef.current);
+            editingShapeIdRef.current = null;
+            return;
+          }
+        }
+
+        const anchorHit = vectorAnchorNear(shape, x, y);
+        if (anchorHit !== null) {
+          draggingVectorAnchorRef.current = anchorHit;
+          vectorDragStartRef.current = { x, y };
+          return;
+        }
+
+        const insertAt = vectorInsertionIndex(shape, x, y);
+        if (insertAt !== null) {
+          insertVectorAnchor(shape.id, insertAt, x, y);
+          return;
+        }
+
+        if (!shape.closed) {
+          shape.anchors = [...shape.anchors, { x, y }];
+          draggingHandleRef.current = { anchorIndex: shape.anchors.length - 1, which: "handleOut" };
+          placingNewAnchorRef.current = true;
+          vectorDragStartRef.current = { x, y };
+          saveVectorShapes(vectorShapesRef.current);
+          recordVectorProvenance();
+          return;
+        }
+
+        // Closed shape, click elsewhere on it: stop editing, fall through to
+        // check other shapes / empty space below.
+        editingShapeIdRef.current = null;
+      }
+    }
+
+    for (let i = vectorShapesRef.current.length - 1; i >= 0; i--) {
+      const shape = vectorShapesRef.current[i];
+      const handleHit = vectorHandleNear(shape, x, y);
+      if (handleHit) {
+        editingShapeIdRef.current = shape.id;
+        draggingHandleRef.current = handleHit;
+        return;
+      }
+      const anchorHit = vectorAnchorNear(shape, x, y);
+      if (anchorHit !== null) {
+        editingShapeIdRef.current = shape.id;
+        draggingVectorAnchorRef.current = anchorHit;
+        vectorDragStartRef.current = { x, y };
+        return;
+      }
+      const insertAt = vectorInsertionIndex(shape, x, y);
+      if (insertAt !== null) {
+        editingShapeIdRef.current = shape.id;
+        insertVectorAnchor(shape.id, insertAt, x, y);
+        return;
+      }
+    }
+
+    const newShape: VectorShape = {
+      id: `${Date.now()}-${Math.round(Math.random() * 1e6)}`,
+      anchors: [{ x, y }],
+      closed: false,
+      createdAt: Date.now(),
+    };
+    vectorShapesRef.current = [...vectorShapesRef.current, newShape];
+    editingShapeIdRef.current = newShape.id;
+    saveVectorShapes(vectorShapesRef.current);
+    recordVectorProvenance();
+  }
+
+  function handleVectorPointerMove(x: number, y: number) {
+    const idx = vectorShapesRef.current.findIndex((s) => s.id === editingShapeIdRef.current);
+    if (idx === -1) return;
+    const shape = vectorShapesRef.current[idx];
+
+    if (draggingHandleRef.current) {
+      const { anchorIndex, which } = draggingHandleRef.current;
+      const anchor = shape.anchors[anchorIndex];
+      if (placingNewAnchorRef.current) {
+        // Symmetric: dragging out from a freshly-placed anchor sets both
+        // handles at once (mirrored), making it a smooth curve point.
+        anchor.handleOut = { x, y };
+        anchor.handleIn = { x: anchor.x - (x - anchor.x), y: anchor.y - (y - anchor.y) };
+      } else {
+        anchor[which] = { x, y };
+      }
+      redrawRef.current();
+      return;
+    }
+
+    if (draggingVectorAnchorRef.current !== null) {
+      const start = vectorDragStartRef.current;
+      if (start && Math.hypot(x - start.x, y - start.y) > ANCHOR_HIT_PX) {
+        const anchor = shape.anchors[draggingVectorAnchorRef.current];
+        const dx = x - anchor.x;
+        const dy = y - anchor.y;
+        anchor.x = x;
+        anchor.y = y;
+        if (anchor.handleIn) {
+          anchor.handleIn = { x: anchor.handleIn.x + dx, y: anchor.handleIn.y + dy };
+        }
+        if (anchor.handleOut) {
+          anchor.handleOut = { x: anchor.handleOut.x + dx, y: anchor.handleOut.y + dy };
+        }
+        redrawRef.current();
+      }
+    }
+  }
+
+  function handleVectorPointerUp(x: number, y: number) {
+    const idx = vectorShapesRef.current.findIndex((s) => s.id === editingShapeIdRef.current);
+    const shape = idx !== -1 ? vectorShapesRef.current[idx] : null;
+    const start = vectorDragStartRef.current;
+    const moved = start ? Math.hypot(x - start.x, y - start.y) : 0;
+
+    if (shape && draggingHandleRef.current) {
+      if (placingNewAnchorRef.current && moved <= ANCHOR_HIT_PX) {
+        // Released without dragging — a plain click, so this anchor is a
+        // corner, not a curve point. Discard the handles set on pointerdown.
+        const anchor = shape.anchors[draggingHandleRef.current.anchorIndex];
+        anchor.handleIn = undefined;
+        anchor.handleOut = undefined;
+      }
+      saveVectorShapes(vectorShapesRef.current);
+    } else if (shape && draggingVectorAnchorRef.current !== null) {
+      if (moved <= ANCHOR_HIT_PX) {
+        // A real click, not a drag — delete, per the Vector tool's spec.
+        deleteVectorAnchorAt(shape.id, draggingVectorAnchorRef.current);
+      } else {
+        saveVectorShapes(vectorShapesRef.current);
+      }
+    }
+
+    draggingHandleRef.current = null;
+    draggingVectorAnchorRef.current = null;
+    placingNewAnchorRef.current = false;
+    vectorDragStartRef.current = null;
+    redrawRef.current();
+  }
+
   // Move/Rotate/Scale click: the pointerdown must land on a stroke that's
   // already part of selectedIds (populated by Select/Assign's lasso first) —
   // clicking an unselected stroke or empty space is a no-op, same "you pick
@@ -2188,7 +2708,7 @@ export default function Home() {
 
   function handleDownloadFff() {
     trackExport("fff");
-    downloadProjectFile(glyphs, completedRef.current, metrics, settings, "untitled.fff");
+    downloadProjectFile(glyphs, completedRef.current, vectorShapesRef.current, metrics, settings, "untitled.fff");
   }
 
   function handleImportFffClick() {
@@ -2221,6 +2741,9 @@ export default function Home() {
     completedRef.current = [];
     outlinesRef.current = [];
     clearStrokes();
+    vectorShapesRef.current = [];
+    clearVectorShapes();
+    exitVectorEditing();
     setStrokeCount(0);
     setGlyphs([]);
     setSelectedIds([]);
@@ -2232,6 +2755,115 @@ export default function Home() {
     // accrued for the strokes just cleared could be reused to publish
     // unrelated later work.
     rollDraftId();
+    // A blank project isn't the cloud project it might have come from anymore.
+    setCurrentCloudProjectPersist(null);
+  }
+
+  function setCurrentCloudProjectPersist(project: { id: number; name: string } | null) {
+    setCurrentCloudProject(project);
+    if (typeof window === "undefined") return;
+    if (project) window.localStorage.setItem("fontane.currentCloudProject.v1", JSON.stringify(project));
+    else window.localStorage.removeItem("fontane.currentCloudProject.v1");
+  }
+
+  async function handleUnlockCloud() {
+    const code = cloudCodeInput.trim();
+    if (!code) return;
+    setCloudBusy(true);
+    setCloudError(null);
+    try {
+      const res = await fetch("/api/projects", { headers: { "x-fontane-code": code } });
+      if (!res.ok) {
+        setCloudError("Wrong code.");
+        return;
+      }
+      setStoredCode(code);
+      setCloudCode(code);
+      setCloudModal(null);
+      setCloudCodeInput("");
+    } catch {
+      setCloudError("Network error — please try again.");
+    } finally {
+      setCloudBusy(false);
+    }
+  }
+
+  function handleLockCloud() {
+    clearStoredCode();
+    setCloudCode(null);
+    setCurrentCloudProjectPersist(null);
+  }
+
+  function openSaveToCloud() {
+    setCloudSaveAsName(currentCloudProject?.name ?? "untitled");
+    setCloudError(null);
+    setCloudModal("save");
+  }
+
+  async function handleSaveToCloud(asNew: boolean) {
+    const name = cloudSaveAsName.trim();
+    if (!name || !cloudCode) return;
+    setCloudBusy(true);
+    setCloudError(null);
+    try {
+      const project = buildProjectFile(glyphs, completedRef.current, vectorShapesRef.current, metrics, settings);
+      const body: { name: string; project: unknown; id?: number } = { name, project };
+      if (!asNew && currentCloudProject) body.id = currentCloudProject.id;
+      const res = await fetch("/api/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-fontane-code": cloudCode },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setCloudError(typeof data.error === "string" ? data.error : "Save failed.");
+        return;
+      }
+      trackExport("cloud-save");
+      setCurrentCloudProjectPersist({ id: data.project.id, name: data.project.name });
+      setCloudModal(null);
+    } catch {
+      setCloudError("Network error — please try again.");
+    } finally {
+      setCloudBusy(false);
+    }
+  }
+
+  function openCloudProjects() {
+    setCloudError(null);
+    setCloudModal("projects");
+  }
+
+  async function handleLoadCloudProject(id: number, name: string) {
+    if (!cloudCode) return;
+    setCloudBusy(true);
+    setCloudError(null);
+    try {
+      const res = await fetch(`/api/projects/${id}`, { headers: { "x-fontane-code": cloudCode } });
+      const data = await res.json();
+      if (!res.ok) {
+        setCloudError(typeof data.error === "string" ? data.error : "Load failed.");
+        return;
+      }
+      applyProjectFile(data.project.data);
+      setCurrentCloudProjectPersist({ id, name });
+      window.location.reload();
+    } catch {
+      setCloudError("Network error — please try again.");
+      setCloudBusy(false);
+    }
+  }
+
+  async function handleDeleteCloudProject(id: number) {
+    if (!cloudCode) return;
+    try {
+      const res = await fetch(`/api/projects/${id}`, { method: "DELETE", headers: { "x-fontane-code": cloudCode } });
+      if (!res.ok) return;
+      setCloudProjects((prev) => prev.filter((p) => p.id !== id));
+      if (currentCloudProject?.id === id) setCurrentCloudProjectPersist(null);
+    } catch {
+      // best-effort — the list just won't reflect the delete until reopened
+    }
   }
 
   function closeMarketplaceModal() {
@@ -2559,6 +3191,64 @@ export default function Home() {
               >
                 Share Font
               </button>
+            </div>
+          )}
+        </div>
+
+        <div
+          className={styles.menuItem}
+          onMouseEnter={() => openMenuOnHover("cloud")}
+          onMouseLeave={scheduleMenuHoverClose}
+        >
+          <button
+            type="button"
+            className={styles.menuTrigger}
+            aria-haspopup="menu"
+            aria-expanded={openMenu === "cloud"}
+            onClick={() => setOpenMenu((m) => (m === "cloud" ? null : "cloud"))}
+          >
+            Cloud
+          </button>
+          {openMenu === "cloud" && (
+            <div className={styles.dropdown} role="menu">
+              {!cloudCode ? (
+                <button
+                  type="button"
+                  role="menuitem"
+                  className={styles.dropdownItem}
+                  onClick={() => { setCloudModal("unlock"); setCloudError(null); setOpenMenu(null); }}
+                >
+                  Unlock Cloud
+                </button>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className={styles.dropdownItem}
+                    disabled={glyphs.length === 0}
+                    onClick={() => { openSaveToCloud(); setOpenMenu(null); }}
+                  >
+                    Save to Cloud
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className={styles.dropdownItem}
+                    onClick={() => { openCloudProjects(); setOpenMenu(null); }}
+                  >
+                    My Cloud Projects
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className={styles.dropdownItem}
+                    onClick={() => { handleLockCloud(); setOpenMenu(null); }}
+                  >
+                    Lock
+                  </button>
+                </>
+              )}
             </div>
           )}
         </div>
@@ -3596,6 +4286,126 @@ export default function Home() {
                         ? "Failed"
                         : "Copy link"}
                   </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {cloudModal === "unlock" && (
+        <div className={styles.modalBackdrop} onClick={() => setCloudModal(null)}>
+          <div className={styles.modalCard} role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <span>Unlock Cloud</span>
+              <button type="button" className={styles.modalClose} onClick={() => setCloudModal(null)} aria-label="Close">
+                ×
+              </button>
+            </div>
+            <div style={{ padding: "0 16px 16px", display: "flex", flexDirection: "column", gap: 8 }}>
+              <input
+                type="password"
+                className={styles.nameInput}
+                style={{ width: "100%" }}
+                placeholder="Cloud code"
+                value={cloudCodeInput}
+                onChange={(e) => setCloudCodeInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") handleUnlockCloud(); }}
+              />
+              {cloudError && <p style={{ fontSize: 12, color: "var(--color-error, #c0392b)" }}>{cloudError}</p>}
+              <button
+                type="button"
+                className={styles.clearBtn}
+                disabled={!cloudCodeInput.trim() || cloudBusy}
+                onClick={handleUnlockCloud}
+              >
+                {cloudBusy ? "Checking…" : "Unlock"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {cloudModal === "save" && (
+        <div className={styles.modalBackdrop} onClick={() => setCloudModal(null)}>
+          <div className={styles.modalCard} role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <span>Save to Cloud</span>
+              <button type="button" className={styles.modalClose} onClick={() => setCloudModal(null)} aria-label="Close">
+                ×
+              </button>
+            </div>
+            <div style={{ padding: "0 16px 16px", display: "flex", flexDirection: "column", gap: 8 }}>
+              <input
+                type="text"
+                className={styles.nameInput}
+                style={{ width: "100%" }}
+                placeholder="Project name"
+                value={cloudSaveAsName}
+                onChange={(e) => setCloudSaveAsName(e.target.value)}
+              />
+              {cloudError && <p style={{ fontSize: 12, color: "var(--color-error, #c0392b)" }}>{cloudError}</p>}
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  type="button"
+                  className={styles.clearBtn}
+                  disabled={!cloudSaveAsName.trim() || cloudBusy}
+                  onClick={() => handleSaveToCloud(false)}
+                >
+                  {currentCloudProject ? "Save" : "Save"}
+                </button>
+                {currentCloudProject && (
+                  <button
+                    type="button"
+                    className={styles.clearBtn}
+                    disabled={!cloudSaveAsName.trim() || cloudBusy}
+                    onClick={() => handleSaveToCloud(true)}
+                  >
+                    Save as New
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {cloudModal === "projects" && (
+        <div className={styles.modalBackdrop} onClick={() => setCloudModal(null)}>
+          <div className={styles.modalCard} role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <span>My Cloud Projects</span>
+              <button type="button" className={styles.modalClose} onClick={() => setCloudModal(null)} aria-label="Close">
+                ×
+              </button>
+            </div>
+            <div style={{ padding: "0 16px 16px", display: "flex", flexDirection: "column", gap: 8 }}>
+              {cloudError && <p style={{ fontSize: 12, color: "var(--color-error, #c0392b)" }}>{cloudError}</p>}
+              {cloudProjectsLoading && <p style={{ fontSize: 12, opacity: 0.7 }}>Loading…</p>}
+              {!cloudProjectsLoading && cloudProjects.length === 0 && (
+                <p style={{ fontSize: 12, opacity: 0.7 }}>No cloud projects yet.</p>
+              )}
+              {cloudProjects.map((p) => (
+                <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                  <span>
+                    {p.name}
+                    <span style={{ fontSize: 11, opacity: 0.6, marginLeft: 6 }}>
+                      {new Date(p.updated_at).toLocaleString()}
+                    </span>
+                  </span>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button
+                      type="button"
+                      className={styles.clearBtn}
+                      disabled={cloudBusy}
+                      onClick={() => handleLoadCloudProject(p.id, p.name)}
+                    >
+                      Load
+                    </button>
+                    <button type="button" className={styles.clearBtn} onClick={() => handleDeleteCloudProject(p.id)}>
+                      Delete
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>

@@ -1,6 +1,6 @@
 -- Fontane.Studio marketplace — published fonts metadata.
--- Run this once in CNSL's Supabase project (SQL Editor), same project as
--- fontane_events.sql. Own table, own RLS — no relation to analytics.
+-- Run this once in Fontane.Studio's own Supabase project (SQL Editor), same
+-- project as fontane_events.sql. Own table, own RLS — no relation to analytics.
 --
 -- Also requires a Storage bucket named "fonts", created manually via the
 -- Supabase dashboard (Storage > New bucket), marked PUBLIC so downloads

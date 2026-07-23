@@ -50,7 +50,11 @@ export function rollDraftId(): string {
 }
 
 export type ProvenanceContext = "free" | "grid" | "editor";
-export type ProvenanceTool = "pen" | "brush";
+// "vector" = the Vector (Bezier pen) tool — each placed anchor gets its own
+// event via summarizeStroke([[x,y,1]], Date.now()) (pointCount 1, pressure
+// fields are meaningless for a click so pinned to 1/0) rather than a new
+// summarizer, since anchors don't carry pressure the way Stroke points do.
+export type ProvenanceTool = "pen" | "brush" | "vector";
 
 export type ProvenanceEvent = {
   draftId: string;

@@ -6,9 +6,8 @@ import { createClient } from "@supabase/supabase-js";
 // only ever talks to our own /api/track endpoint, never to Supabase
 // directly, so no anon key is needed at all.
 //
-// Reuses CNSL's existing Supabase project (a dedicated `fontane_events`
-// table with RLS enabled and no policies — see supabase/fontane_events.sql)
-// rather than provisioning a separate project.
+// Fontane.Studio's own dedicated Supabase project (RLS enabled, no policies
+// — see supabase/*.sql), separate from CNSL's project.
 //
 // Returns null (instead of throwing) when the env vars aren't set yet, so
 // callers can no-op gracefully before this is wired up in Vercel.

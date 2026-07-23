@@ -1,7 +1,5 @@
 -- Fontane.Studio mini analytics — one append-only events table.
--- Run this once in CNSL's Supabase project (SQL Editor). Deliberately
--- separate from any CNSL table (own name, own RLS) — reuses the project,
--- not the data.
+-- Run this once in Fontane.Studio's own Supabase project (SQL Editor).
 
 create table if not exists fontane_events (
   id bigint generated always as identity primary key,
@@ -21,6 +19,35 @@ create table if not exists fontane_events (
 );
 
 alter table fontane_events add column if not exists referrer text;
+
+-- Coarse, GDPR-safe additions (2026-07-23): each is a single aggregate
+-- category, never itself identifying, and none of them are stored anywhere
+-- other than on the pageview row they arrived with — see api/track/route.ts.
+-- - country: 2-letter code from Vercel's edge geolocation() — the request's
+--   IP is used to derive this at the edge and never reaches our own code or
+--   storage at all (contrast with visitor_id above, which does see the raw
+--   IP for one hash operation before discarding it).
+-- - device: "mobile" | "tablet" | "desktop", parsed from User-Agent
+--   server-side — the full UA string itself is never stored.
+-- - language: 2-letter code from the browser's own navigator.language,
+--   client-supplied (nothing else on this table is) since only the browser
+--   knows it — same "aggregate category only" reasoning applies.
+-- - page: which surface the pageview happened on ("editor" | "marketplace" |
+--   "marketplace-listing") — lets the marketplace browse→download ratio be
+--   computed without adding any new identifying data.
+alter table fontane_events add column if not exists country text;
+alter table fontane_events add column if not exists device text;
+alter table fontane_events add column if not exists language text;
+alter table fontane_events add column if not exists page text;
+
+-- "tool_use" (2026-07-23): one event per completed tool action (a finished
+-- stroke, a placed Vector anchor, a Move/Rotate/Scale/Nudge/Assign that
+-- actually changed something) — which tool, not what it did. Reuses the
+-- existing `format` column (unused for this type) rather than adding a
+-- dedicated column, same aggregate-count-only shape as exports-by-format.
+alter table fontane_events drop constraint if exists fontane_events_type_check;
+alter table fontane_events add constraint fontane_events_type_check
+  check (type in ('pageview', 'duration', 'export', 'tool_use'));
 
 -- RLS enabled with NO policies = deny-all for the anon/authenticated roles.
 -- The app only ever reads/writes via the service_role key (server-side

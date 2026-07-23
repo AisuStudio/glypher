@@ -86,10 +86,14 @@ export default async function AnnelieseePage({
           </button>
         </form>
 
-        <div style={{ display: "grid", gap: 24, gridTemplateColumns: "repeat(2, 1fr)", marginBottom: 40 }}>
+        <div style={{ display: "grid", gap: 24, gridTemplateColumns: "repeat(3, 1fr)", marginBottom: 40 }}>
           <div>
             <div style={{ fontSize: 40 }}>{stats.totalVisits}</div>
             <div style={{ opacity: 0.6, fontSize: 14 }}>total visits (all time)</div>
+          </div>
+          <div>
+            <div style={{ fontSize: 40 }}>{stats.avgVisitsPerDay}</div>
+            <div style={{ opacity: 0.6, fontSize: 14 }}>avg. visitors / day</div>
           </div>
           <div>
             <div style={{ fontSize: 40 }}>{formatDuration(stats.avgSeconds)}</div>
@@ -120,6 +124,58 @@ export default async function AnnelieseePage({
             </tbody>
           </table>
         )}
+
+        <h2 style={{ fontSize: 16, margin: "40px 0 12px", opacity: 0.6 }}>tools used</h2>
+        {stats.toolsByUsage.length === 0 ? (
+          <p style={{ opacity: 0.6 }}>no tool activity yet</p>
+        ) : (
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <tbody>
+              {stats.toolsByUsage.map(([tool, count]) => (
+                <tr key={tool} style={{ borderTop: "1px solid rgba(31,25,52,0.15)" }}>
+                  <td style={{ padding: "8px 0" }}>{tool}</td>
+                  <td style={{ padding: "8px 0", textAlign: "right" }}>{count}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+
+        <h2 style={{ fontSize: 16, margin: "40px 0 12px", opacity: 0.6 }}>marketplace browse → download</h2>
+        <p style={{ opacity: 0.6, fontSize: 13, marginBottom: 4 }}>
+          {stats.marketplaceViews} views, {stats.marketplaceDownloads} downloads
+          {stats.marketplaceViews > 0 && ` (${Math.round((stats.marketplaceDownloads / stats.marketplaceViews) * 100)}%)`}
+        </p>
+        <p style={{ opacity: 0.4, fontSize: 12 }}>aggregate ratio, not a per-visitor funnel</p>
+
+        <h2 style={{ fontSize: 16, margin: "40px 0 12px", opacity: 0.6 }}>visitors by country, device, language</h2>
+        <div style={{ display: "grid", gap: 24, gridTemplateColumns: "repeat(3, 1fr)" }}>
+          {(
+            [
+              ["country", stats.topCountries],
+              ["device", stats.topDevices],
+              ["language", stats.topLanguages],
+            ] as const
+          ).map(([label, entries]) => (
+            <div key={label}>
+              <div style={{ opacity: 0.6, fontSize: 13, marginBottom: 8, textTransform: "capitalize" }}>{label}</div>
+              {entries.length === 0 ? (
+                <p style={{ opacity: 0.6, fontSize: 13 }}>no data yet</p>
+              ) : (
+                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <tbody>
+                    {entries.map(([value, count]) => (
+                      <tr key={value} style={{ borderTop: "1px solid rgba(31,25,52,0.15)" }}>
+                        <td style={{ padding: "6px 0", fontSize: 13 }}>{value}</td>
+                        <td style={{ padding: "6px 0", textAlign: "right", fontSize: 13 }}>{count}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );

@@ -1,4 +1,5 @@
 import polygonClipping, { type Polygon, type MultiPolygon } from "polygon-clipping";
+import type { VectorShape, BezierPoint } from "./vectorShapes";
 
 export type PathCommand =
   | { type: "M"; x: number; y: number }
@@ -76,6 +77,63 @@ export function unionOutlines(outlines: [number, number][][]): [number, number][
   if (polygons.length === 0) return [];
   const merged: MultiPolygon = polygonClipping.union(polygons[0], ...polygons.slice(1));
   return merged.flat().filter((ring) => ringArea(ring) > MIN_RING_AREA);
+}
+
+// Cuts `negative` out of `positive` — used for the Vector tool's default
+// "shapes punch a hole" behavior (see compileDocument() in page.tsx). Both
+// arguments are expected to already be unionOutlines()'d among themselves;
+// this only combines the two groups. Falls back to returning `positive`
+// untouched when there's nothing to subtract, rather than erroring on an
+// empty clip geometry.
+export function subtractOutlines(
+  positive: [number, number][][],
+  negative: [number, number][][]
+): [number, number][][] {
+  const positivePolys: Polygon[] = positive.filter((o) => o.length >= 3).map((o) => [o]);
+  const negativePolys: Polygon[] = negative.filter((o) => o.length >= 3).map((o) => [o]);
+  if (positivePolys.length === 0) return [];
+  if (negativePolys.length === 0) return positive.filter((o) => o.length >= 3);
+  const result: MultiPolygon = polygonClipping.difference(positivePolys, negativePolys);
+  return result.flat().filter((ring) => ringArea(ring) > MIN_RING_AREA);
+}
+
+// Exported so page.tsx's Vector-tool insertion hit-test can sample the same
+// true curve this flattening uses, rather than a straight-line approximation
+// (see findInsertionRank's stroke-anchor equivalent for why that matters).
+export function cubicPoint(p0: BezierPoint, c1: BezierPoint, c2: BezierPoint, p1: BezierPoint, t: number): [number, number] {
+  const mt = 1 - t;
+  const a = mt * mt * mt;
+  const b = 3 * mt * mt * t;
+  const c = 3 * mt * t * t;
+  const d = t * t * t;
+  return [a * p0.x + b * c1.x + c * c2.x + d * p1.x, a * p0.y + b * c1.y + c * c2.y + d * p1.y];
+}
+
+// Dense-samples the Vector tool's true cubic Bezier anchors into a plain
+// polygon — the same [number,number][] shape unionOutlines/outlineToPath
+// already consume for freehand strokes. One-way and compile-time-only: the
+// editable anchors+handles themselves only ever live in the VectorShape
+// source (src/lib/vectorShapes.ts), same relationship FFF's raw stroke
+// points have to compileDocument()'s unioned output. A segment with no
+// handle on either end is a straight line (no sampling needed).
+export function flattenVectorShape(shape: VectorShape, segmentsPerCurve = 24): [number, number][] {
+  if (shape.anchors.length < 2) return [];
+  const points: [number, number][] = [[shape.anchors[0].x, shape.anchors[0].y]];
+  const segmentCount = shape.closed ? shape.anchors.length : shape.anchors.length - 1;
+  for (let i = 0; i < segmentCount; i++) {
+    const p0 = shape.anchors[i];
+    const p1 = shape.anchors[(i + 1) % shape.anchors.length];
+    if (!p0.handleOut && !p1.handleIn) {
+      points.push([p1.x, p1.y]);
+      continue;
+    }
+    const c1 = p0.handleOut ?? { x: p0.x, y: p0.y };
+    const c2 = p1.handleIn ?? { x: p1.x, y: p1.y };
+    for (let s = 1; s <= segmentsPerCurve; s++) {
+      points.push(cubicPoint(p0, c1, c2, p1, s / segmentsPerCurve));
+    }
+  }
+  return points;
 }
 
 function round(n: number): number {

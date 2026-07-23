@@ -52,8 +52,15 @@ function getReferrerHost(): string | null {
   }
 }
 
-export function trackPageview() {
-  send({ type: "pageview", referrer: getReferrerHost() });
+// "editor" (default, the main tool) | "marketplace" | "marketplace-listing"
+// — lets the dashboard compute a marketplace browse→download ratio. Only
+// ever a fixed category string, not a path/URL.
+export function trackPageview(page: string = "editor") {
+  // navigator.language is e.g. "de-DE" — only the 2-letter language part is
+  // sent, same "coarse aggregate category, not the full raw value" rule
+  // country/device follow server-side in api/track/route.ts.
+  const language = typeof navigator !== "undefined" ? navigator.language?.slice(0, 2) || null : null;
+  send({ type: "pageview", referrer: getReferrerHost(), page, language });
 }
 
 export function trackDuration(seconds: number) {
@@ -63,4 +70,11 @@ export function trackDuration(seconds: number) {
 
 export function trackExport(format: string) {
   send({ type: "export", format });
+}
+
+// One ping per completed tool action (a finished stroke, a placed Vector
+// anchor, a Move/Rotate/Scale/Nudge/Assign that actually changed something)
+// — which tool, not what it did or on what content.
+export function trackToolUse(tool: string) {
+  send({ type: "tool_use", tool });
 }

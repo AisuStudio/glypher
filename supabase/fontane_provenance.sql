@@ -1,6 +1,7 @@
 -- Fontane.Studio marketplace — provenance events, the publish-gate's source
--- of truth. Run this once in CNSL's Supabase project (SQL Editor), same
--- project as fontane_events.sql / fontane_fonts.sql. Own table, own RLS.
+-- of truth. Run this once in Fontane.Studio's own Supabase project (SQL
+-- Editor), same project as fontane_events.sql / fontane_fonts.sql. Own
+-- table, own RLS.
 --
 -- One row per completed stroke drawn in the app (Free/Editor AND Grid),
 -- server-stamped. A font is only publishable if a plausible spread of these

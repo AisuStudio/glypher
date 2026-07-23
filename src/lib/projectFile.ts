@@ -3,6 +3,7 @@ import { saveGlyphs, type Glyph } from "./glyphs";
 import { saveStrokes, type Stroke } from "./strokes";
 import { saveMetrics, type Metrics } from "./metrics";
 import { saveSettings, type StrokeSettings } from "./settings";
+import { saveVectorShapes, type VectorShape } from "./vectorShapes";
 
 // "FFF" (Fontane Font File) — a raw dump of exactly the state the app keeps
 // in localStorage (glyphs/strokes/metrics/settings), NOT the compiled
@@ -15,6 +16,9 @@ export type ProjectFile = {
   version: 1;
   glyphs: Glyph[];
   strokes: Stroke[];
+  // Optional — absent on FFF files saved before the Vector tool existed,
+  // treated as [] everywhere below rather than bumping `version`.
+  vectorShapes?: VectorShape[];
   metrics: Metrics;
   settings: StrokeSettings;
 };
@@ -22,20 +26,22 @@ export type ProjectFile = {
 export function buildProjectFile(
   glyphs: Glyph[],
   strokes: Stroke[],
+  vectorShapes: VectorShape[],
   metrics: Metrics,
   settings: StrokeSettings
 ): ProjectFile {
-  return { version: 1, glyphs, strokes, metrics, settings };
+  return { version: 1, glyphs, strokes, vectorShapes, metrics, settings };
 }
 
 export function downloadProjectFile(
   glyphs: Glyph[],
   strokes: Stroke[],
+  vectorShapes: VectorShape[],
   metrics: Metrics,
   settings: StrokeSettings,
   fileName = "untitled.fff"
 ) {
-  const project = buildProjectFile(glyphs, strokes, metrics, settings);
+  const project = buildProjectFile(glyphs, strokes, vectorShapes, metrics, settings);
   const blob = new Blob([JSON.stringify(project, null, 2)], { type: "application/json" });
   saveFile(blob, {
     suggestedName: fileName,
@@ -63,6 +69,7 @@ export function parseProjectFile(text: string): ProjectFile {
 export function applyProjectFile(project: ProjectFile) {
   saveGlyphs(project.glyphs);
   saveStrokes(project.strokes);
+  saveVectorShapes(project.vectorShapes ?? []);
   saveMetrics(project.metrics);
   saveSettings(project.settings);
 }

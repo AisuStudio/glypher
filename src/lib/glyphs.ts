@@ -8,6 +8,10 @@ export type Glyph = {
   components?: string[]; // ligature only — names of the base glyphs it's built from
   alternateOf?: string; // alternate only — name of the glyph this is a variant of
   strokeIds: string[];
+  // Vector-tool shapes tagged into this glyph, alongside (or instead of)
+  // strokeIds — see src/lib/vectorShapes.ts. Undefined/empty on any glyph
+  // tagged before the Vector tool existed.
+  vectorShapeIds?: string[];
   createdAt: number;
   // Grid View only — left/right sidebearing guides, draggable per glyph, as
   // fractions (0-1) of the drawing cell's own width. cellWidth/cellHeight (in

@@ -1,13 +1,25 @@
 import { createHash } from "crypto";
-import { ipAddress } from "@vercel/functions";
+import { ipAddress, geolocation } from "@vercel/functions";
 import { getSupabase } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
 
 type TrackBody =
-  | { type: "pageview"; referrer?: string | null }
+  | { type: "pageview"; referrer?: string | null; page?: string; language?: string | null }
   | { type: "duration"; seconds: number }
-  | { type: "export"; format: string };
+  | { type: "export"; format: string }
+  | { type: "tool_use"; tool: string };
+
+// Coarse device category from User-Agent — the full string is never stored,
+// only this one-of-three label. iPad's UA on recent iPadOS omits "Mobile"
+// and can even omit "iPad" (reports as a Mac UA) — not worth chasing further
+// precision for an aggregate stat, "desktop" is an acceptable fallback there.
+function deviceCategory(userAgent: string): "mobile" | "tablet" | "desktop" {
+  const ua = userAgent.toLowerCase();
+  if (/ipad/.test(ua) || (/android/.test(ua) && !/mobile/.test(ua))) return "tablet";
+  if (/mobi|iphone|android/.test(ua)) return "mobile";
+  return "desktop";
+}
 
 // Comma-separated raw IPs (ANALYTICS_EXCLUDED_IPS in Vercel/.env.local) —
 // e.g. your own, so testing/checking the live site doesn't skew the visitor
@@ -70,13 +82,23 @@ export async function POST(request: Request) {
     try {
       if (body.type === "pageview") {
         const userAgent = request.headers.get("user-agent") ?? "unknown";
-        await supabase
-          .from("fontane_events")
-          .insert({ type: "pageview", visitor_id: dailyVisitorFingerprint(ip, userAgent), referrer: body.referrer ?? null });
+        await supabase.from("fontane_events").insert({
+          type: "pageview",
+          visitor_id: dailyVisitorFingerprint(ip, userAgent),
+          referrer: body.referrer ?? null,
+          page: typeof body.page === "string" ? body.page : "editor",
+          language: typeof body.language === "string" ? body.language : null,
+          country: geolocation(request).country ?? null,
+          device: deviceCategory(userAgent),
+        });
       } else if (body.type === "duration" && Number.isFinite(body.seconds)) {
         await supabase.from("fontane_events").insert({ type: "duration", seconds: Math.round(body.seconds) });
       } else if (body.type === "export" && body.format) {
         await supabase.from("fontane_events").insert({ type: "export", format: body.format });
+      } else if (body.type === "tool_use" && body.tool) {
+        // Reuses the `format` column — unused for this type, same
+        // aggregate-count shape as exports-by-format (see fontane_events.sql).
+        await supabase.from("fontane_events").insert({ type: "tool_use", format: body.tool });
       }
     } catch {
       // Supabase reachable but the query itself failed (bad table/policy) —

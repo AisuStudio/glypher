@@ -50,12 +50,19 @@ function daysBetween(from: string, to: string): number {
 export async function getAnnelieseData(range: DateRange) {
   const empty = {
     totalVisits: 0,
+    avgVisitsPerDay: 0,
     avgSeconds: 0,
     exportsByFormat: {} as Record<string, number>,
+    toolsByUsage: [] as [string, number][],
     directCount: 0,
     referredCount: 0,
     buckets: [] as Bucket[],
     legend: [] as { label: string; color: string }[],
+    topCountries: [] as [string, number][],
+    topDevices: [] as [string, number][],
+    topLanguages: [] as [string, number][],
+    marketplaceViews: 0,
+    marketplaceDownloads: 0,
     ok: false as const,
   };
 
@@ -66,22 +73,24 @@ export async function getAnnelieseData(range: DateRange) {
   const toTs = `${range.to}T23:59:59.999Z`;
 
   try {
-    const [{ data: pageviews }, { data: durations }, { data: exports }, { count: totalVisits }] = await Promise.all([
-      supabase
-        .from("fontane_events")
-        .select("visitor_id, referrer, created_at")
-        .eq("type", "pageview")
-        .gte("created_at", fromTs)
-        .lte("created_at", toTs),
-      supabase.from("fontane_events").select("seconds").eq("type", "duration").gte("created_at", fromTs).lte("created_at", toTs),
-      supabase.from("fontane_events").select("format").eq("type", "export").gte("created_at", fromTs).lte("created_at", toTs),
-      // All-time, deliberately NOT scoped to `range` — the one number on the
-      // page that's meant to just keep growing, rather than reset every time
-      // the date filter changes (the bar chart below is already the
-      // range-scoped, per-day breakdown; this headline number complements it
-      // instead of duplicating it).
-      supabase.from("fontane_events").select("*", { count: "exact", head: true }).eq("type", "pageview"),
-    ]);
+    const [{ data: pageviews }, { data: durations }, { data: exports }, { data: toolUses }, { count: totalVisits }] =
+      await Promise.all([
+        supabase
+          .from("fontane_events")
+          .select("visitor_id, referrer, created_at, country, device, language, page")
+          .eq("type", "pageview")
+          .gte("created_at", fromTs)
+          .lte("created_at", toTs),
+        supabase.from("fontane_events").select("seconds").eq("type", "duration").gte("created_at", fromTs).lte("created_at", toTs),
+        supabase.from("fontane_events").select("format").eq("type", "export").gte("created_at", fromTs).lte("created_at", toTs),
+        supabase.from("fontane_events").select("format").eq("type", "tool_use").gte("created_at", fromTs).lte("created_at", toTs),
+        // All-time, deliberately NOT scoped to `range` — the one number on the
+        // page that's meant to just keep growing, rather than reset every time
+        // the date filter changes (the bar chart below is already the
+        // range-scoped, per-day breakdown; this headline number complements it
+        // instead of duplicating it).
+        supabase.from("fontane_events").select("*", { count: "exact", head: true }).eq("type", "pageview"),
+      ]);
 
     const rows = pageviews ?? [];
     const seconds = (durations ?? []).map((r) => r.seconds).filter((s): s is number => s != null);
@@ -91,8 +100,45 @@ export async function getAnnelieseData(range: DateRange) {
       if (!row.format) continue;
       exportsByFormat[row.format] = (exportsByFormat[row.format] ?? 0) + 1;
     }
+    // Same ranked-count shape as exportsByFormat — tool_use reuses the same
+    // `format` column (see fontane_events.sql), just a different `type`.
+    const toolCounts: Record<string, number> = {};
+    for (const row of toolUses ?? []) {
+      if (!row.format) continue;
+      toolCounts[row.format] = (toolCounts[row.format] ?? 0) + 1;
+    }
+    const toolsByUsage = Object.entries(toolCounts).sort((a, b) => b[1] - a[1]);
+
     const directCount = rows.filter((r) => !r.referrer).length;
     const referredCount = rows.length - directCount;
+
+    // Simple ranked-count breakdowns — same shape/rendering as exportsByFormat
+    // above, just three more coarse categorical fields off the same rows.
+    const countBy = (key: "country" | "device" | "language"): [string, number][] => {
+      const counts: Record<string, number> = {};
+      for (const r of rows) {
+        const value = r[key];
+        if (!value) continue;
+        counts[value] = (counts[value] ?? 0) + 1;
+      }
+      return Object.entries(counts).sort((a, b) => b[1] - a[1]);
+    };
+    const topCountries = countBy("country");
+    const topDevices = countBy("device");
+    const topLanguages = countBy("language");
+
+    // Marketplace browse→download — an aggregate ratio, not a real per-
+    // visitor funnel (nothing here ties a specific view to a specific
+    // download, by design — see fontane_events.sql). "views" counts both the
+    // overview and individual listing pages.
+    const marketplaceViews = rows.filter((r) => r.page === "marketplace" || r.page === "marketplace-listing").length;
+    const marketplaceDownloads = (exports ?? []).filter((r) => r.format === "marketplace-download").length;
+
+    // Range-scoped (unlike totalVisits, which is deliberately all-time) —
+    // this number should move when the date filter changes, same as the
+    // chart below it. One decimal so short ranges (e.g. "last 7 days") don't
+    // round away all the signal.
+    const avgVisitsPerDay = Math.round((rows.length / daysBetween(range.from, range.to)) * 10) / 10;
 
     // Top N referrer hosts by total volume across the whole range — the
     // fixed set of "named" slices; everything else folds into "Other".
@@ -158,7 +204,23 @@ export async function getAnnelieseData(range: DateRange) {
       .filter((label) => buckets.some((b) => b.sources.some((s) => s.label === label)))
       .map((label) => ({ label, color: colorFor(label) }));
 
-    return { totalVisits: totalVisits ?? 0, avgSeconds, exportsByFormat, directCount, referredCount, buckets, legend, ok: true as const };
+    return {
+      totalVisits: totalVisits ?? 0,
+      avgVisitsPerDay,
+      avgSeconds,
+      exportsByFormat,
+      toolsByUsage,
+      directCount,
+      referredCount,
+      buckets,
+      legend,
+      topCountries,
+      topDevices,
+      topLanguages,
+      marketplaceViews,
+      marketplaceDownloads,
+      ok: true as const,
+    };
   } catch {
     return empty;
   }
