@@ -13,6 +13,9 @@ export default function MarketplaceNav() {
       <Link href="/marketplace" style={{ color: "#1f1934", opacity: 0.7, textDecoration: "none" }}>
         Marketplace
       </Link>
+      <Link href="/features" style={{ color: "#1f1934", opacity: 0.7, textDecoration: "none" }}>
+        Features
+      </Link>
     </nav>
   );
 }

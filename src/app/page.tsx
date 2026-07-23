@@ -25,6 +25,7 @@ import {
   type BezierAnchor,
   type BezierPoint,
 } from "@/lib/vectorShapes";
+import { setClipboard, getClipboard, type ClipboardStroke, type ClipboardShape } from "@/lib/clipboard";
 import { simplifyStrokeIndices } from "@/lib/simplify";
 import { buildFont, downloadFont } from "@/lib/exportFont";
 import { downloadSkeletonSvg } from "@/lib/exportSkeleton";
@@ -1673,6 +1674,85 @@ export default function Home() {
         return;
       }
 
+      // Copy/Paste (Free only — Grid has its own copy of this in
+      // GridCell.tsx, sharing the same src/lib/clipboard.ts singleton so
+      // content can cross between Free and any Grid cell). Guarded against
+      // typing in a text field up front, unlike Undo/Redo above — Cmd+C in a
+      // glyph-name field should copy the selected text, not the canvas.
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "c") {
+        const target = e.target as HTMLElement | null;
+        if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) return;
+        if (topModeRef.current !== "draw" || drawStyleRef.current !== "free" || selectedIdsRef.current.size === 0) return;
+        e.preventDefault();
+        const strokes: ClipboardStroke[] = completedRef.current
+          .filter((s) => selectedIdsRef.current.has(s.id))
+          .map((s) => ({
+            points: s.points.map((p) => [...p] as StrokePoint),
+            kind: s.kind,
+            widthScale: s.widthScale,
+            source: "free" as const,
+          }));
+        const shapes: ClipboardShape[] = vectorShapesRef.current
+          .filter((s) => selectedIdsRef.current.has(s.id))
+          .map((s) => ({
+            closed: s.closed,
+            anchors: s.anchors.map((a) => ({
+              x: a.x,
+              y: a.y,
+              handleIn: a.handleIn ? { ...a.handleIn } : undefined,
+              handleOut: a.handleOut ? { ...a.handleOut } : undefined,
+            })),
+          }));
+        setClipboard({ strokes, shapes });
+        return;
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "v") {
+        const target = e.target as HTMLElement | null;
+        if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) return;
+        if (topModeRef.current !== "draw" || drawStyleRef.current !== "free") return;
+        const clip = getClipboard();
+        if (!clip || (clip.strokes.length === 0 && clip.shapes.length === 0)) return;
+        e.preventDefault();
+        pushUndoSnapshot();
+        // A fixed nudge, not a rescale — Free is a single absolute canvas, so
+        // content pasted from either Free or a Grid cell lands exactly where
+        // it was, just offset enough to be visibly distinct from the source.
+        const OFFSET = 24;
+        const newStrokes: Stroke[] = clip.strokes.map((cs) => ({
+          id: `${Date.now()}-${Math.round(Math.random() * 1e6)}`,
+          points: cs.points.map(([x, y, p]) => [x + OFFSET, y + OFFSET, p] as StrokePoint),
+          createdAt: Date.now(),
+          kind: cs.kind,
+          widthScale: cs.widthScale,
+        }));
+        completedRef.current = [...completedRef.current, ...newStrokes];
+        outlinesRef.current = [
+          ...outlinesRef.current,
+          ...newStrokes.map((s) => outlineFor(s.points, effectiveSettingsFor(s, settingsRef.current))),
+        ];
+        saveStrokes(completedRef.current);
+        setStrokeCount(completedRef.current.length);
+
+        const newShapes: VectorShape[] = clip.shapes.map((cs) => ({
+          id: `${Date.now()}-${Math.round(Math.random() * 1e6)}`,
+          closed: cs.closed,
+          createdAt: Date.now(),
+          anchors: cs.anchors.map((a) => ({
+            x: a.x + OFFSET,
+            y: a.y + OFFSET,
+            handleIn: a.handleIn ? { x: a.handleIn.x + OFFSET, y: a.handleIn.y + OFFSET } : undefined,
+            handleOut: a.handleOut ? { x: a.handleOut.x + OFFSET, y: a.handleOut.y + OFFSET } : undefined,
+          })),
+        }));
+        vectorShapesRef.current = [...vectorShapesRef.current, ...newShapes];
+        saveVectorShapes(vectorShapesRef.current);
+
+        setSelectedIds([...newStrokes.map((s) => s.id), ...newShapes.map((s) => s.id)]);
+        trackToolUse("paste");
+        redrawRef.current();
+        return;
+      }
+
       // Per-tool shortcuts (see TOOL_DEFS) — only in Draw, and never while
       // the user is actually typing a glyph name/text (those single-letter
       // inputs can legitimately contain any of these letters).
@@ -3193,6 +3273,12 @@ export default function Home() {
               </button>
             </div>
           )}
+        </div>
+
+        <div className={styles.menuItem}>
+          <Link href="/features" className={styles.menuTrigger}>
+            Features
+          </Link>
         </div>
 
         <div

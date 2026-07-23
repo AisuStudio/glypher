@@ -4,11 +4,12 @@ import { useEffect, useRef } from "react";
 import { getStroke } from "perfect-freehand";
 import styles from "./page.module.css";
 import { outlineToPath, skeletonToPath, type PathCommand } from "@/lib/contour";
-import { pointInPolygon, anyPointInPolygon } from "@/lib/geometry";
+import { pointInPolygon, anyPointInPolygon, fitPointsToBox } from "@/lib/geometry";
 import { simplifyStrokeIndices } from "@/lib/simplify";
 import type { StrokeKind, StrokePoint } from "@/lib/strokes";
 import type { Metrics } from "@/lib/metrics";
 import { unicodeFor } from "@/lib/glyphs";
+import { setClipboard, getClipboard, type ClipboardStroke } from "@/lib/clipboard";
 
 export type StrokeOptions = { size: number; thinning: number; smoothing: number; streamline: number };
 export type CellTool = "pen" | "brush" | "eraser" | "select" | "nudge" | "move" | "rotate" | "scale";
@@ -247,6 +248,11 @@ export default function GridCell({
 
   const lassoRef = useRef<[number, number][]>([]);
   const selectedIdsRef = useRef<Set<string>>(new Set());
+  // Current authoritative cell size for Copy/Paste's target-box scaling
+  // (see onKeyDown below) — read from a ref, not the widthPx/heightPx props
+  // directly, since the keydown listener effect mounts once and would
+  // otherwise close over stale values from whatever render it first attached in.
+  const cellDimsRef = useRef({ width: widthPx, height: heightPx });
 
   // Nudge: which stroke is being reshaped, its Douglas-Peucker-simplified
   // anchor indices, whether it's been resampled down to just those anchors
@@ -293,6 +299,7 @@ export default function GridCell({
   }
   onBearingsChangeRef.current = onBearingsChange;
   onResizeRef.current = onResize;
+  cellDimsRef.current = { width: widthPx, height: heightPx };
   // Same clobber-guard, generalized: don't resync the working stroke data
   // from props while a Nudge or Move/Rotate/Scale edit is live, or the
   // in-flight reshape/transform would revert to the last-committed shape
@@ -546,6 +553,12 @@ export default function GridCell({
     }
 
     function onPointerDown(e: PointerEvent) {
+      // Every cell's keydown listener is on `window` (there's no per-cell
+      // DOM subtree to scope it to otherwise) — Copy/Paste below relies on
+      // DOM focus to know WHICH cell a Cmd+V should land in, so a real
+      // interaction claims it. Without this, Cmd+V would fire in every
+      // visible cell at once.
+      canvas!.focus();
       canvas!.setPointerCapture(e.pointerId);
       const [x, y] = pointFromEvent(e);
       const hit = bearingNear(x, canvas!.clientWidth);
@@ -711,6 +724,62 @@ export default function GridCell({
     // context bar's own Dimension field) the same way page.tsx's shortcuts
     // are, so editing a number doesn't also wipe strokes.
     function onKeyDown(e: KeyboardEvent) {
+      // Copy/Paste — shares src/lib/clipboard.ts with page.tsx's Free-canvas
+      // handler, so content can cross between Free and any Grid cell. Grid
+      // has no vector shapes (Free-only, see FREE_ONLY_TOOLS in page.tsx),
+      // so only `clip.strokes` is ever read here.
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "c") {
+        const target = e.target as HTMLElement | null;
+        if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) return;
+        // Same reasoning as the focus-guard on Paste below: a stale
+        // selection can linger in a cell the user isn't in anymore (nothing
+        // auto-clears it just from clicking into a different cell).
+        if (document.activeElement !== canvas || selectedIdsRef.current.size === 0) return;
+        e.preventDefault();
+        const strokes: ClipboardStroke[] = strokesRef.current
+          .filter((s) => selectedIdsRef.current.has(s.id))
+          .map((s) => ({
+            points: s.points.map((p) => [...p] as StrokePoint),
+            kind: s.kind,
+            widthScale: s.widthScale,
+            source: { cellWidth: cellDimsRef.current.width, cellHeight: cellDimsRef.current.height },
+          }));
+        setClipboard({ strokes, shapes: [] });
+        return;
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "v") {
+        const target = e.target as HTMLElement | null;
+        if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) return;
+        // Every cell shares this same window-level listener — only the one
+        // the user actually clicked into (DOM focus, set in onPointerDown
+        // above) should paste, or Cmd+V would land in every visible cell.
+        if (document.activeElement !== canvas) return;
+        const clip = getClipboard();
+        if (!clip || clip.strokes.length === 0) return;
+        e.preventDefault();
+        const { width: targetWidth, height: targetHeight } = cellDimsRef.current;
+        for (const cs of clip.strokes) {
+          let points = cs.points;
+          if (cs.source === "free") {
+            const flat = points.map(([x, y]) => [x, y] as [number, number]);
+            const { scale, offsetX, offsetY } = fitPointsToBox(flat, targetWidth, targetHeight);
+            points = points.map(([x, y, p]) => [x * scale + offsetX, y * scale + offsetY, p] as StrokePoint);
+          } else {
+            const scaleX = targetWidth / cs.source.cellWidth;
+            const scaleY = targetHeight / cs.source.cellHeight;
+            points = points.map(([x, y, p]) => [x * scaleX, y * scaleY, p] as StrokePoint);
+          }
+          onStrokeCompleteRef.current(
+            { id: `${Date.now()}-${Math.round(Math.random() * 1e6)}`, points, createdAt: Date.now(), kind: cs.kind },
+            targetWidth,
+            targetHeight,
+            0
+          );
+        }
+        redraw();
+        return;
+      }
+
       if (selectedIdsRef.current.size === 0) return;
       if (e.key !== "Delete" && e.key !== "Backspace") return;
       const target = e.target as HTMLElement | null;
@@ -822,7 +891,7 @@ export default function GridCell({
 
   return (
     <div className={styles.gridCell} ref={wrapperRef} style={{ width: widthPx, height: heightPx }}>
-      <canvas ref={canvasRef} className={styles.gridCellCanvas} />
+      <canvas ref={canvasRef} className={styles.gridCellCanvas} tabIndex={-1} style={{ outline: "none" }} />
       <div className={styles.gridCellLabelBar}>
         <span className={styles.gridCellLabelChar}>{label}</span>
         {unicode && <span className={styles.gridCellLabelUnicode}>{unicode}</span>}
